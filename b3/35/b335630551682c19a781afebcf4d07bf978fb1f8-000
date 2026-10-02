@@ -1,0 +1,59 @@
+# CeramicTiles : Julien Delannoy ceramic tiles in Houdini Copernicus (2 October 2026)
+
+One Copernicus graph, `CeramicTiles.hiplc` (network `/obj/CeramicGreen_Height`, 140 nodes), makes the six final maps of FOUR tile patterns. The HDA parameter `variant` of the master network switches between them (2 October 2026).
+
+| `variant` | Pattern | Reference | Maps folder | Folder of its parameters |
+|---|---|---|---|---|
+| 0 | 01a green lenses (the original graph, untouched, bit for bit) | `ref/01a-julien-delannoy-10-left.png` | `maps/01a_green_lenses/` | the original `HDA` folders |
+| 1 | 01b pillow tiles, 6 x 6 cushions with star voids | `ref/01b-julien-delannoy-10-right.png` | `maps/01b_pillow_tiles/` | `HDA 01b Pillow` (8 parameters, prefix `v1_`) |
+| 2 | 02a serpentine arcs, 5 x 5 Truchet tiles | `ref/02a-julien-delannoy-11-left.png` | `maps/02a_serpentine_arcs/` | `HDA 02a Serpentine` (8 parameters, prefix `v2_`) |
+| 3 | 02b terracotta bowls, 6 x 6 tiles | `ref/02b-julien-delannoy-11-right.png` | `maps/02b_terracotta_bowls/` | `HDA 02b Terracotta` (8 parameters, prefix `v3_`) |
+
+Each `maps/<variant>/` holds `height, normal, basecolor, roughness, ao, reflect` (PNG) and a `preview.png` sheet (reference, relit maps, basecolor, height, normal).
+
+## The two phase rule (2 October 2026)
+
+Every variant is built twice. Phase 1 explores in layers, one wrangle per stage (up to 64 nodes) until the look is right. Phase 2 fuses the layers into ONE wrangle per map (7 nodes per variant) and the six maps must stay identical (maxdiff 0.0, proven for 01b, 02a, 02b). The whole graph stays under 150 nodes.
+
+## Where things are
+
+| Folder or file | What it is |
+|---|---|
+| `CeramicTiles.hiplc` | the master hip (the file to open) |
+| `FEEDBACK.md` | link to the running feedback file of the exercise |
+| `ref/` | the Julien Delannoy references (01 to 08, left and right halves `01a..02b`), photos, the pattern GIF and its frames, the arches description |
+| `ref-maps/` | the measured data of each reference, `v01b.json`, `v02a.json`, `v02b.json` |
+| `Scripts/` | every script (see the table below) |
+| `hip/` | the five historical single pattern hips `CeramicGreen_Height_V1..V5.hiplc` |
+| `variants/` | milestone hips of the variant work (`V2_phase1_*_layered` = phase 1, `V2_phase2_*` = phase 2, `V2_final_candidate`) |
+| `backups/` | dated backups before each big change (`2026-10-01_before_prune` = the 1226 node graph, `2026-10-02_before_variants` = the 106 node graph) |
+| `maps/` | the final maps of the four variants |
+| `render/` | everything rendered: Karma frames, ad, Unreal frames; `render/INDEX.md` says what is where |
+| `measures/` | numbered measures `M<N>_<label>/` with a `report.md`, `HISTORY.md` lists every run |
+| `lighting/`, `storyboard/`, `unreal/` | the studio lighting study, the ad storyboard, the Unreal project work of the 25 second ad |
+| `versions/` | one image per version of the green tile (`V001.png` ...) with `INDEX.md` |
+| `90-archive/` | leftovers kept out of the way |
+
+## Scripts of the variant work
+
+| Script | Role |
+|---|---|
+| `Scripts/V2Infra.py` | adds the `variant` menu, the six switches `SW_n_*` and the six export ROPs `VX_export__*` (idempotent) |
+| `Scripts/VariantLib.py`, `Scripts/VariantEngine.py` | helpers and the stage engine: a map is a list of VEX stages on a running vector `S`, built layered or fused |
+| `Scripts/Variant01b.py`, `Variant02a.py`, `Variant02b.py` | one file per variant: parameters (`SPECS`), pattern prelude, stages |
+| `Scripts/BuildVariant.py <hip in> <hip out> <01b\|02a\|02b> <layered\|fused> [--reset-params]` | builds one variant into a hip |
+| `Scripts/CookVariant.py <hip> <variant> <res> <outdir>` | cooks the six maps of one variant headless |
+| `Scripts/ExportVariantMaps.sh <hip> [res] [exposure]` | exports the four variants into `maps/` with previews |
+| `Scripts/PreviewVariant.py` | side by side sheet, reference against relit maps |
+| `Scripts/NonRegression01a.py <hip> [res]` | gate: variant 0 must equal the original graph (exit code 1 if not) |
+| `Scripts/TidyVariants.py` | lays out the variant bands and boxes them |
+| `Scripts/Fit01b.py`, `Fit02a.py`, `Fit02b.py` | measure each reference (tile grid, orientations, colours) into `ref-maps/` |
+| `Scripts/RepointHip.py` | rewrites the project paths of a hip after a move |
+
+## Colour rule of the variants
+
+The export applies the sRGB curve, so every colour constant measured on a PNG reference is converted with `srgb2lin` (helper `lin3()` in the variant code) before it enters the stages. Forgetting it gives pale maps (found and fixed on 01b and 02a, 2 October 2026).
+
+## Old path
+
+The project lived in `~/.claude/tmp/tmp-houdini-september-2026/tmp-materials-substance-copernicus-30-09-2026`. That path is now a symbolic link to this folder, so old references keep working (2 October 2026).

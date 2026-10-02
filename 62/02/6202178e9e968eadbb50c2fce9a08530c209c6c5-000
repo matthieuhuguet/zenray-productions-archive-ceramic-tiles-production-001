@@ -1,0 +1,28 @@
+# M001 after_hue_and_small_circles
+Date: 30 September 2026, 17:49
+
+| check | value | threshold | result |
+|---|---|---|---|
+| miss ref (tan pixels of the reference NOT explained by the circle model) | 0.0842 | < 0.20 | PASS |
+| miss mine (tan pixels of my map NOT explained by the model) | 0.0046 | < 0.05 | PASS |
+| glaze mean error | 0.0198 | < 0.012 | FAIL |
+| mean abs difference on the aligned strip | 0.0470 | < 0.06 | PASS |
+| speck fraction ratio mine / ref | 1.5216 | 0.8 to 1.2 | FAIL |
+| profile corner mean colour error | 0.0092 | < 0.012 | PASS |
+| profile centre mean colour error | 0.0049 | < 0.012 | PASS |
+| profile joint mean colour error | 0.0102 | < 0.012 | PASS |
+| r-g std ratio mine / ref at sigma 40, 15, 6, 2 px = [1.07, 1.1, 1.09, 1.02] | 0.1030 | within 0.15 | PASS |
+| b-mid std ratio mine / ref at sigma 40, 15, 6, 2 px = [0.94, 1.01, 1.07, 1.01] | 0.0727 | within 0.15 | PASS |
+| lum std ratio mine / ref at sigma 40, 15, 6, 2 px = [0.95, 1.08, 1.06, 0.95] | 0.0841 | within 0.15 | PASS |
+
+## Karma render against 01a
+- mean colour 01a [0.24300000071525574, 0.2809999883174896, 0.17000000178813934] mine [0.26100000739097595, 0.3070000112056732, 0.17100000381469727]
+- saturation 01a 0.454 mine 0.463
+- luminance std 01a 0.129 mine 0.110
+- luminance p5/p50/p95 01a [0.052, 0.217, 0.461] mine [0.065, 0.259, 0.371]
+
+## Files
+- geometry_overlay_ref.png : green = reference tan pixels explained by the model, magenta = not explained
+- geometry_overlay_mine.png : same test on my map
+- basecolor_aligned_ref_vs_mine.png : reference | mine | difference x4
+- profiles_corner_centre_joint.png : colour profiles
