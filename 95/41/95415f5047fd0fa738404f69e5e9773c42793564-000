@@ -1,0 +1,198 @@
+{
+ "g": [
+  [
+   0.0955,
+   0.7907,
+   0.3053,
+   0.3184,
+   0.0004,
+   0.0,
+   0.002,
+   0.4566
+  ],
+  [
+   0.6091,
+   1.0,
+   0.7008,
+   0.6351,
+   0.0242,
+   0.0,
+   0.0,
+   0.0
+  ],
+  [
+   0.0319,
+   1.0,
+   1.0,
+   1.0,
+   0.0269,
+   0.0,
+   0.0,
+   0.0
+  ],
+  [
+   0.0001,
+   0.0208,
+   0.5593,
+   0.1966,
+   0.0,
+   0.0,
+   0.0,
+   0.0003
+  ],
+  [
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.0001,
+   0.021,
+   0.0032
+  ],
+  [
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.5821,
+   0.6767,
+   0.0101
+  ],
+  [
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.0007,
+   1.0,
+   0.7116,
+   0.0181
+  ],
+  [
+   0.0,
+   0.0,
+   0.0,
+   0.0,
+   0.011,
+   0.0421,
+   0.0065,
+   0.0006
+  ]
+ ],
+ "history": [
+  {
+   "from": "measures/H005_glint_baseline_033",
+   "note": "initial: 0.5 * clip((ref + 0.002) / (mine + 0.002), 0.05, 3) from the smoothed frame 033 glint densities"
+  },
+  {
+   "from": "H006_reflectmap_iter1",
+   "mean_abs_log_ratio": 0.9465388655662537,
+   "glint_frac_ref": 0.02229984477162361,
+   "glint_frac_mine": 0.044529736042022705
+  },
+  {
+   "from": "H007_reflectmap_iter2",
+   "mean_abs_log_ratio": 0.6634174585342407,
+   "glint_frac_ref": 0.02229984477162361,
+   "glint_frac_mine": 0.030427388846874237
+  },
+  {
+   "from": "H008_reflectmap_iter3_gain07",
+   "mean_abs_log_ratio": 0.5400017499923706,
+   "glint_frac_ref": 0.02229984477162361,
+   "glint_frac_mine": 0.023950209841132164
+  },
+  {
+   "from": "H013_bright_baseline_042",
+   "mean_abs_log_ratio": 1.1654629707336426,
+   "glint_frac_ref": 0.0026728773955255747,
+   "glint_frac_mine": 0.013901885598897934
+  },
+  {
+   "from": "H014_micro004_brightcal",
+   "mean_abs_log_ratio": 0.8391292691230774,
+   "glint_frac_ref": 0.0026728773955255747,
+   "glint_frac_mine": 0.00671139033511281
+  },
+  {
+   "from": "H015_gain05_speck115",
+   "mean_abs_log_ratio": 0.7723526954650879,
+   "glint_frac_ref": 0.0026728773955255747,
+   "glint_frac_mine": 0.005189378745853901
+  },
+  {
+   "from": "H022_dish05",
+   "mean_abs_log_ratio": 0.686637282371521,
+   "glint_frac_ref": 0.0026728773955255747,
+   "glint_frac_mine": 0.003014005720615387
+  },
+  {
+   "from": "H023_map_iter_speck05",
+   "mean_abs_log_ratio": 0.6585885882377625,
+   "glint_frac_ref": 0.0026728773955255747,
+   "glint_frac_mine": 0.002918477402999997
+  },
+  {
+   "from": "H024_base_follows_map",
+   "mean_abs_log_ratio": 0.8605567216873169,
+   "glint_frac_ref": 0.0026728773955255747,
+   "glint_frac_mine": 0.0032818657346069813
+  },
+  {
+   "from": "H025_floor_zero_map",
+   "mean_abs_log_ratio": 0.8014114499092102,
+   "glint_frac_ref": 0.0026728773955255747,
+   "glint_frac_mine": 0.003019831608980894
+  },
+  {
+   "from": "H026_key36_tint706",
+   "mean_abs_log_ratio": 0.775891125202179,
+   "glint_frac_ref": 0.0026728773955255747,
+   "glint_frac_mine": 0.0026973013300448656
+  },
+  {
+   "from": "H027_nrm07",
+   "mean_abs_log_ratio": 0.9136703014373779,
+   "glint_frac_ref": 0.0026728773955255747,
+   "glint_frac_mine": 0.003256604541093111
+  },
+  {
+   "from": "H028_nrm09fill35",
+   "mean_abs_log_ratio": 0.9525972008705139,
+   "glint_frac_ref": 0.0026728773955255747,
+   "glint_frac_mine": 0.002896474674344063
+  },
+  {
+   "from": "H030_key385dark",
+   "mean_abs_log_ratio": 0.9957780241966248,
+   "glint_frac_ref": 0.0026728773955255747,
+   "glint_frac_mine": 0.0022911569103598595
+  },
+  {
+   "from": "H032_move20",
+   "mean_abs_log_ratio": 0.9072389602661133,
+   "glint_frac_ref": 0.0026728773955255747,
+   "glint_frac_mine": 0.004130932502448559
+  },
+  {
+   "from": "H043_slope092cloud15",
+   "mean_abs_log_ratio": 0.8816764950752258,
+   "glint_frac_ref": 0.0026728773955255747,
+   "glint_frac_mine": 0.0037604346871376038
+  },
+  {
+   "from": "H052_angle10reinh",
+   "mean_abs_log_ratio": 1.5567138195037842,
+   "glint_frac_ref": 0.0026728773955255747,
+   "glint_frac_mine": 0.011120928451418877
+  },
+  {
+   "from": "H053_angle8cal",
+   "mean_abs_log_ratio": 1.344614028930664,
+   "glint_frac_ref": 0.0026728773955255747,
+   "glint_frac_mine": 0.00828844215720892
+  }
+ ]
+}

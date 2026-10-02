@@ -1,0 +1,612 @@
+{
+ "tiles": 6,
+ "joints_x": [
+  315,
+  638,
+  961,
+  1284,
+  1604
+ ],
+ "joints_y": [
+  313,
+  635,
+  954,
+  1281,
+  1604
+ ],
+ "tile": [
+  [
+   {
+    "side": 3,
+    "strength": 0.345,
+    "colour": [
+     0.5577,
+     0.3869,
+     0.2721
+    ],
+    "centre": 0.433,
+    "sectors": {
+     "top": 0.29,
+     "right": 0.431,
+     "bottom": 0.396,
+     "left": 0.283
+    }
+   },
+   {
+    "side": 0,
+    "strength": 0.363,
+    "colour": [
+     0.5917,
+     0.4229,
+     0.3044
+    ],
+    "centre": 0.474,
+    "sectors": {
+     "top": 0.302,
+     "right": 0.418,
+     "bottom": 0.419,
+     "left": 0.356
+    }
+   },
+   {
+    "side": 0,
+    "strength": 0.281,
+    "colour": [
+     0.5325,
+     0.365,
+     0.2522
+    ],
+    "centre": 0.406,
+    "sectors": {
+     "top": 0.292,
+     "right": 0.38,
+     "bottom": 0.349,
+     "left": 0.331
+    }
+   },
+   {
+    "side": 2,
+    "strength": 0.462,
+    "colour": [
+     0.3945,
+     0.2688,
+     0.1862
+    ],
+    "centre": 0.296,
+    "sectors": {
+     "top": 0.262,
+     "right": 0.192,
+     "bottom": 0.159,
+     "left": 0.309
+    }
+   },
+   {
+    "side": 1,
+    "strength": 0.285,
+    "colour": [
+     0.1953,
+     0.1045,
+     0.0608
+    ],
+    "centre": 0.122,
+    "sectors": {
+     "top": 0.13,
+     "right": 0.087,
+     "bottom": 0.204,
+     "left": 0.163
+    }
+   },
+   {
+    "side": 3,
+    "strength": 0.609,
+    "colour": [
+     0.2565,
+     0.1608,
+     0.1045
+    ],
+    "centre": 0.183,
+    "sectors": {
+     "top": 0.125,
+     "right": 0.153,
+     "bottom": 0.128,
+     "left": 0.071
+    }
+   }
+  ],
+  [
+   {
+    "side": 3,
+    "strength": 0.37,
+    "colour": [
+     0.7194,
+     0.5982,
+     0.536
+    ],
+    "centre": 0.645,
+    "sectors": {
+     "top": 0.459,
+     "right": 0.562,
+     "bottom": 0.495,
+     "left": 0.406
+    }
+   },
+   {
+    "side": 1,
+    "strength": 0.119,
+    "colour": [
+     0.6178,
+     0.4236,
+     0.2912
+    ],
+    "centre": 0.459,
+    "sectors": {
+     "top": 0.439,
+     "right": 0.404,
+     "bottom": 0.551,
+     "left": 0.455
+    }
+   },
+   {
+    "side": 1,
+    "strength": 0.142,
+    "colour": [
+     0.5364,
+     0.3514,
+     0.2247
+    ],
+    "centre": 0.384,
+    "sectors": {
+     "top": 0.369,
+     "right": 0.33,
+     "bottom": 0.516,
+     "left": 0.415
+    }
+   },
+   {
+    "side": 2,
+    "strength": 0.142,
+    "colour": [
+     0.3534,
+     0.216,
+     0.1326
+    ],
+    "centre": 0.241,
+    "sectors": {
+     "top": 0.236,
+     "right": 0.257,
+     "bottom": 0.207,
+     "left": 0.433
+    }
+   },
+   {
+    "side": 2,
+    "strength": 0.58,
+    "colour": [
+     0.3579,
+     0.2285,
+     0.1482
+    ],
+    "centre": 0.266,
+    "sectors": {
+     "top": 0.21,
+     "right": 0.168,
+     "bottom": 0.112,
+     "left": 0.239
+    }
+   },
+   {
+    "side": 1,
+    "strength": 0.0,
+    "colour": [
+     0.1321,
+     0.0643,
+     0.0336
+    ],
+    "centre": 0.075,
+    "sectors": {
+     "top": 0.147,
+     "right": 0.082,
+     "bottom": 0.193,
+     "left": 0.103
+    }
+   }
+  ],
+  [
+   {
+    "side": 2,
+    "strength": 0.622,
+    "colour": [
+     0.6522,
+     0.4476,
+     0.3072
+    ],
+    "centre": 0.494,
+    "sectors": {
+     "top": 0.505,
+     "right": 0.361,
+     "bottom": 0.186,
+     "left": 0.418
+    }
+   },
+   {
+    "side": 3,
+    "strength": 0.331,
+    "colour": [
+     0.6319,
+     0.4708,
+     0.3744
+    ],
+    "centre": 0.507,
+    "sectors": {
+     "top": 0.563,
+     "right": 0.57,
+     "bottom": 0.356,
+     "left": 0.339
+    }
+   },
+   {
+    "side": 2,
+    "strength": 0.289,
+    "colour": [
+     0.4988,
+     0.3131,
+     0.1942
+    ],
+    "centre": 0.352,
+    "sectors": {
+     "top": 0.451,
+     "right": 0.254,
+     "bottom": 0.25,
+     "left": 0.501
+    }
+   },
+   {
+    "side": 1,
+    "strength": 0.312,
+    "colour": [
+     0.4362,
+     0.2922,
+     0.2034
+    ],
+    "centre": 0.341,
+    "sectors": {
+     "top": 0.251,
+     "right": 0.235,
+     "bottom": 0.266,
+     "left": 0.248
+    }
+   },
+   {
+    "side": 3,
+    "strength": 0.0,
+    "colour": [
+     0.2081,
+     0.1116,
+     0.0638
+    ],
+    "centre": 0.127,
+    "sectors": {
+     "top": 0.188,
+     "right": 0.172,
+     "bottom": 0.25,
+     "left": 0.168
+    }
+   },
+   {
+    "side": 2,
+    "strength": 0.538,
+    "colour": [
+     0.3262,
+     0.2116,
+     0.1376
+    ],
+    "centre": 0.236,
+    "sectors": {
+     "top": 0.26,
+     "right": 0.196,
+     "bottom": 0.109,
+     "left": 0.199
+    }
+   }
+  ],
+  [
+   {
+    "side": 3,
+    "strength": 0.306,
+    "colour": [
+     0.5153,
+     0.339,
+     0.2235
+    ],
+    "centre": 0.376,
+    "sectors": {
+     "top": 0.268,
+     "right": 0.404,
+     "bottom": 0.278,
+     "left": 0.261
+    }
+   },
+   {
+    "side": 2,
+    "strength": 0.394,
+    "colour": [
+     0.3988,
+     0.224,
+     0.1207
+    ],
+    "centre": 0.264,
+    "sectors": {
+     "top": 0.359,
+     "right": 0.272,
+     "bottom": 0.16,
+     "left": 0.369
+    }
+   },
+   {
+    "side": 3,
+    "strength": 0.401,
+    "colour": [
+     0.5078,
+     0.338,
+     0.2307
+    ],
+    "centre": 0.383,
+    "sectors": {
+     "top": 0.301,
+     "right": 0.386,
+     "bottom": 0.278,
+     "left": 0.229
+    }
+   },
+   {
+    "side": 2,
+    "strength": 0.026,
+    "colour": [
+     0.3012,
+     0.1684,
+     0.0962
+    ],
+    "centre": 0.188,
+    "sectors": {
+     "top": 0.26,
+     "right": 0.265,
+     "bottom": 0.183,
+     "left": 0.336
+    }
+   },
+   {
+    "side": 3,
+    "strength": 0.088,
+    "colour": [
+     0.29,
+     0.1523,
+     0.0774
+    ],
+    "centre": 0.18,
+    "sectors": {
+     "top": 0.318,
+     "right": 0.174,
+     "bottom": 0.293,
+     "left": 0.165
+    }
+   },
+   {
+    "side": 1,
+    "strength": 0.0,
+    "colour": [
+     0.1968,
+     0.1009,
+     0.0554
+    ],
+    "centre": 0.118,
+    "sectors": {
+     "top": 0.142,
+     "right": 0.133,
+     "bottom": 0.238,
+     "left": 0.142
+    }
+   }
+  ],
+  [
+   {
+    "side": 2,
+    "strength": 0.332,
+    "colour": [
+     0.1836,
+     0.0928,
+     0.0507
+    ],
+    "centre": 0.104,
+    "sectors": {
+     "top": 0.242,
+     "right": 0.225,
+     "bottom": 0.07,
+     "left": 0.212
+    }
+   },
+   {
+    "side": 3,
+    "strength": 0.479,
+    "colour": [
+     0.439,
+     0.278,
+     0.1761
+    ],
+    "centre": 0.33,
+    "sectors": {
+     "top": 0.255,
+     "right": 0.236,
+     "bottom": 0.224,
+     "left": 0.172
+    }
+   },
+   {
+    "side": 3,
+    "strength": 0.015,
+    "colour": [
+     0.2535,
+     0.1229,
+     0.0589
+    ],
+    "centre": 0.147,
+    "sectors": {
+     "top": 0.363,
+     "right": 0.235,
+     "bottom": 0.248,
+     "left": 0.145
+    }
+   },
+   {
+    "side": 2,
+    "strength": 0.576,
+    "colour": [
+     0.5281,
+     0.4307,
+     0.3955
+    ],
+    "centre": 0.477,
+    "sectors": {
+     "top": 0.284,
+     "right": 0.323,
+     "bottom": 0.202,
+     "left": 0.327
+    }
+   },
+   {
+    "side": 3,
+    "strength": 0.095,
+    "colour": [
+     0.282,
+     0.1596,
+     0.0911
+    ],
+    "centre": 0.18,
+    "sectors": {
+     "top": 0.367,
+     "right": 0.218,
+     "bottom": 0.265,
+     "left": 0.163
+    }
+   },
+   {
+    "side": 3,
+    "strength": 0.517,
+    "colour": [
+     0.3661,
+     0.2478,
+     0.1701
+    ],
+    "centre": 0.273,
+    "sectors": {
+     "top": 0.282,
+     "right": 0.247,
+     "bottom": 0.216,
+     "left": 0.132
+    }
+   }
+  ],
+  [
+   {
+    "side": 3,
+    "strength": 0.0,
+    "colour": [
+     0.0605,
+     0.0342,
+     0.0213
+    ],
+    "centre": 0.032,
+    "sectors": {
+     "top": 0.197,
+     "right": 0.124,
+     "bottom": 0.089,
+     "left": 0.047
+    }
+   },
+   {
+    "side": 2,
+    "strength": 0.498,
+    "colour": [
+     0.3232,
+     0.2077,
+     0.138
+    ],
+    "centre": 0.232,
+    "sectors": {
+     "top": 0.221,
+     "right": 0.187,
+     "bottom": 0.117,
+     "left": 0.163
+    }
+   },
+   {
+    "side": 3,
+    "strength": 0.229,
+    "colour": [
+     0.1483,
+     0.0708,
+     0.0364
+    ],
+    "centre": 0.087,
+    "sectors": {
+     "top": 0.354,
+     "right": 0.12,
+     "bottom": 0.114,
+     "left": 0.067
+    }
+   },
+   {
+    "side": 3,
+    "strength": 0.656,
+    "colour": [
+     0.3846,
+     0.2532,
+     0.1683
+    ],
+    "centre": 0.296,
+    "sectors": {
+     "top": 0.192,
+     "right": 0.228,
+     "bottom": 0.154,
+     "left": 0.102
+    }
+   },
+   {
+    "side": 3,
+    "strength": 0.537,
+    "colour": [
+     0.3781,
+     0.253,
+     0.1738
+    ],
+    "centre": 0.293,
+    "sectors": {
+     "top": 0.28,
+     "right": 0.212,
+     "bottom": 0.163,
+     "left": 0.136
+    }
+   },
+   {
+    "side": 3,
+    "strength": 0.511,
+    "colour": [
+     0.3412,
+     0.2308,
+     0.1586
+    ],
+    "centre": 0.251,
+    "sectors": {
+     "top": 0.242,
+     "right": 0.219,
+     "bottom": 0.163,
+     "left": 0.122
+    }
+   }
+  ]
+ ],
+ "mean_colour": [
+  0.3860194444444444,
+  0.25394166666666673,
+  0.1741611111111111
+ ]
+}
