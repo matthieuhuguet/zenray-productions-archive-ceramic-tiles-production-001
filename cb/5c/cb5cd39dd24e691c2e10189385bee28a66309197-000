@@ -1,0 +1,11 @@
+# Glaze hue proof (30 September 2026)
+
+Luma Y (Rec. 709) is preserved by the rotation in the (Cb, Cr) plane; the chroma ratio is the median of |chroma after| / |chroma before| in the glaze.
+
+- hue_+000.png | mean Y 0.3416 | max|dY| 0.0000 | p99.9|dY| 0.00000 | median chroma ratio 1.000 | mean RGB [0.32100000977516174, 0.35600000619888306, 0.26499998569488525]
+- hue_+120.png | mean Y 0.3416 | max|dY| 0.0166 | p99.9|dY| 0.00317 | median chroma ratio 0.999 | mean RGB [0.32100000977516174, 0.34700000286102295, 0.3610000014305115]
+- hue_+180.png | mean Y 0.3416 | max|dY| 0.0183 | p99.9|dY| 0.00335 | median chroma ratio 1.000 | mean RGB [0.37599998712539673, 0.33000001311302185, 0.3619999885559082]
+- hue_-090.png | mean Y 0.3416 | max|dY| 0.0176 | p99.9|dY| 0.00309 | median chroma ratio 1.000 | mean RGB [0.3970000147819519, 0.3310000002384186, 0.28600001335144043]
+- hue_000.png | mean Y 0.3416 | max|dY| 0.1049 | p99.9|dY| 0.01880 | median chroma ratio 1.000 | mean RGB [0.32100000977516174, 0.35600000619888306, 0.26499998569488525]
+
+Files: hue_sheet.png (hue -90, 0, +120, +180 degrees).

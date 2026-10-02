@@ -1,0 +1,25 @@
+# Measure history (append only). One line per run of Scripts/RunChecks.py
+
+- M001 after_hue_and_small_circles (30 September 2026, 17:49) : 9/11 PASS; fails: ['glaze mean error', 'speck fraction ratio mine / ref']
+- M002 probe_means (30 September 2026, 17:51) : 9/11 PASS; fails: ['glaze mean error', 'speck fraction ratio mine / ref']
+- M003 lift_and_speck_retuned (30 September 2026, 17:52) : 10/11 PASS; fails: ['speck fraction ratio mine / ref']
+- M004 final_pass (30 September 2026, 17:52) : 11/11 PASS; fails: []
+- M005 frame005_and_render (30 September 2026, 17:54) : 11/11 PASS; fails: []
+- M006 pca_colour_variation (30 September 2026, 17:56) : 7/11 PASS; fails: ['glaze mean error', 'r-g std ratio mine / ref at sigma 40, 15', 'b-mid std ratio mine / ref at sigma 40, ', 'lum std ratio mine / ref at sigma 40, 15']
+- M007 pca_gains (30 September 2026, 17:56) : 8/11 PASS; fails: ['glaze mean error', 'b-mid std ratio mine / ref at sigma 40, ', 'lum std ratio mine / ref at sigma 40, 15']
+- M008 pca_tuned (30 September 2026, 17:57) : 9/11 PASS; fails: ['r-g std ratio mine / ref at sigma 40, 15', 'lum std ratio mine / ref at sigma 40, 15']
+- M009 final_pca_render (30 September 2026, 17:58) : 9/11 PASS; fails: ['b-mid std ratio mine / ref at sigma 40, ', 'lum std ratio mine / ref at sigma 40, 15']
+- M010 gains_115_130_140 (30 September 2026, 17:59) : 9/11 PASS; fails: ['r-g std ratio mine / ref at sigma 40, 15', 'lum std ratio mine / ref at sigma 40, 15']
+- M011 final_gains_and_render (30 September 2026, 17:59) : 9/11 PASS; fails: ['r-g std ratio mine / ref at sigma 40, 15', 'lum std ratio mine / ref at sigma 40, 15']
+- M012 hda_params_default (30 September 2026, 19:39) : 9/11 PASS; fails: ['r-g std ratio mine / ref at sigma 40, 15', 'lum std ratio mine / ref at sigma 40, 15']
+- M013 arc_width_1_8_render_contrast (30 September 2026, 19:45) : 9/11 PASS; fails: ['r-g std ratio mine / ref at sigma 40, 15', 'lum std ratio mine / ref at sigma 40, 15']
+- M014 layout_from_01a_table_01a (30 September 2026, 19:56) : pattern vs 01a: recall 0.801, precision 0.929, IoU 0.228; 1/3 PASS
+- M015 dish_parity_camera4tiles_01a (30 September 2026, 20:08) : pattern vs 01a: recall 0.839, precision 0.926, IoU 0.235; 1/3 PASS
+- M016 layout_dish_parity_final_01a (30 September 2026, 20:13) : pattern vs 01a: recall 0.839, precision 0.926, IoU 0.235; 1/3 PASS
+- M017 final_hda_render (30 September 2026, 20:13) : 3/11 PASS; fails: ['miss mine (tan pixels of my map NOT expl', 'glaze mean error', 'speck fraction ratio mine / ref', 'profile corner mean colour error', 'profile centre mean colour error', 'r-g std ratio mine / ref at sigma 40, 15', 'b-mid std ratio mine / ref at sigma 40, ', 'lum std ratio mine / ref at sigma 40, 15']
+- M018 strip_layout_with_64_fringe_layers (30 September 2026, 20:14) : 7/11 PASS; fails: ['profile corner mean colour error', 'profile centre mean colour error', 'r-g std ratio mine / ref at sigma 40, 15', 'lum std ratio mine / ref at sigma 40, 15']
+- M019 strip_layout_zero_mean_fringe (30 September 2026, 20:14) : 9/11 PASS; fails: ['r-g std ratio mine / ref at sigma 40, 15', 'lum std ratio mine / ref at sigma 40, 15']
+- M020 final_layout01a_fringe64_01a (30 September 2026, 20:15) : pattern vs 01a: recall 0.803, precision 0.926, IoU 0.207; 1/3 PASS
+- M021 v8_final_01a (30 September 2026, 20:38) : pattern vs 01a: recall 0.666, precision 0.956, IoU 0.162; 1/3 PASS
+- M022 v8_final_tiles_calmer_01a (30 September 2026, 20:40) : pattern vs 01a: recall 0.667, precision 0.956, IoU 0.162; 1/3 PASS
+- M023 v8_final_033_01a (30 September 2026, 20:45) : pattern vs 01a: recall 0.659, precision 0.959, IoU 0.164; 1/3 PASS
