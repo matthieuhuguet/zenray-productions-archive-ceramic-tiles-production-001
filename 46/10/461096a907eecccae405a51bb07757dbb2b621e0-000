@@ -1,0 +1,44 @@
+# Évolution de l'éclairage de la pub (matériau Ceramic Tiles vert)
+
+Une entrée par version, jamais réécrite : une correction s'ajoute comme une nouvelle entrée qui cite l'ancienne. Images : `L<NNN>_<date>_<mots>.png` (colonne A = ancien rig de référence 01a, autres colonnes = variantes du rig de studio), chiffres : `L<NNN>_report.json`, rendus bruts : `render/ad_preview/light_L<NNN>_<variante>/`.
+
+## L001, 1 October 2026 : premier essai du rig de studio
+
+- 1 October 2026 : demande de Matthieu : « améliorer l'éclairage au maximum, peut-être avec un cyclorama + rim light + 3 points lights, montre-moi la différence; le rendu des sphères semble très mal éclairé, ce n'est pas un plan; il manque le cycle d'éclairage où je peux avoir le contrôle ». Constat : l'ancien rig (un dôme à -6 EV, trois lumières DISTANTES réglées pour un plan vu de dessus dans un monde noir) fait réfléchir du noir à toute la périphérie d'une sphère vernie : disque sombre avec deux points brillants.
+- 1 October 2026 : premier rig (clé 7, remplissage 5, contre-jours 7,5 stops, dôme ambiant à une radiance de 1,0) : image trop sombre (médiane 1,7 à 2,5 stops sous l'ancien rig) et reflets blancs énormes. Fichier : `L001_2026-10-01_reference_vs_studio_first_try.png`.
+
+## L002, 1 October 2026 : clé 9 à 9,5, gloss, mais un voile gris
+
+- 1 October 2026 : le paramètre `studio_warmth` est remplacé par `studio_gloss` (multiplicateur du spéculaire des boîtes) et les lumières reprennent la teinte de la lumière de référence (0,82 / 1,0 / 0,88), car les palettes 01b et 02a ont été étalonnées sous elle. Médiane des plans revenue à l'ancien niveau (écart 0,15 à 0,74 stop), mais la glaçure est laiteuse : cause trouvée, le dôme ambiant à 2^0 = radiance 1,0 se reflète dans le vernis. Fichier : `L002_2026-10-01_first_tuning.png`.
+
+## L003, 1 October 2026 : dôme ambiant à 2^-5 et cyclorama sombre
+
+- 1 October 2026 : décalage du dôme ambiant à fill - 12 (soit 2^-5 au réglage 7) et cyclorama de -3 puis -4,5 stops : les couleurs retrouvent leur saturation, les sphères sont bien modelées sur un fond dégradé. Reste : de grandes plaques blanches sur les plans. Fichier : `L003_2026-10-01_dark_cyc_low_ambient.png`.
+
+## L004, 1 October 2026 : gloss bas, ce n'est pas la clé
+
+- 1 October 2026 : gloss 0,05 puis 0,03 : les plaques blanches ne bougent presque pas, donc elles ne viennent pas de la clé. Fichier : `L004_2026-10-01_low_gloss_soft_boxes.png`.
+- 1 October 2026 : cause : les deux bandes de contre-jour (0,7 x 4,5 m, exposition 10,5 à 11,5, spéculaire x4 par `rim_gloss_boost`) se reflètent dans chaque pente des cuvettes; diagnostic par calcul (radiance de bande environ 190 fois 0,12 fois Fresnel 0,04 est de l'ordre de 0,9, donc blanc écrêté).
+
+## L005, 1 October 2026 : contre-jours en diffus seul, gloss en curseur
+
+- 1 October 2026 : `rim_gloss_boost` passe de 4 à 0 : les bandes de contre-jour n'éclairent plus que le diffus; les plaques blanches des plans ne viennent alors plus que du reflet de la clé et croissent avec le gloss (0,25 puis 0,6). Fichier : `L005_2026-10-01_rim_diffuse_only.png`.
+
+## L006, 1 October 2026 : réglages par défaut du rig de studio, comparaison finale sur sept images
+
+- 1 October 2026 : défauts retenus : clé 10,5, remplissage 8,0, contre-jours 10,5 (stops), cyclorama -4,0 (gris 0,01), boîtes x1,6, azimut 0, gloss 0,08 (variante « glossier » : 0,2). Mesure : médiane de luminance des plans au niveau de l'ancien rig (écart -0,15 à -0,7 stop), sphères sur fond dégradé, couleurs saturées, reflets réduits à des plaques de clé. Fichier : `L006_2026-10-01_reference_vs_studio_final.png`, chiffres : `L006_report.json`.
+- 1 October 2026 : l'interrupteur `light_rig` reste à 0 (ancien rig, identique à avant) dans le hip enregistré tant que Matthieu n'a pas choisi; le rig de studio s'active par `light_rig = 1`.
+
+## Moteur et échantillons, 1 October 2026 (mesure, hors versions L)
+
+- 1 October 2026 : `Scripts/EngineTest.py` (image 481, 768 x 768, rig de studio) : XPU ignore `samplesperpixel` (même image à 16, 64 et 256) et lit `pathtracedsamples`; corrigé dans `RenderAdFrames.py`. XPU à 16 / 64 / 256 échantillons : 17,8 s / 23,6 s / 30,8 s, bruit 0,0115 / 0,0053 / référence. CPU pur : 21,8 s à 16 et 38,8 s à 64 échantillons, luminance moyenne de la sphère 0,041 contre 0,097 (autre aspect, réétalonnage nécessaire). Chiffres : `engine_test_report.json` (et `engine_test_report_samplesperpixel_only.json` pour la première série).
+
+## Choix de Matthieu, 1 October 2026
+
+- 1 October 2026 : après la planche L006 : « go default compute les square. » Le rig de studio par défaut (clé 10,5, remplissage 8,0, contre-jours 10,5, cyclorama -4,0, boîtes x1,6, azimut 0, gloss 0,08) est adopté, `light_rig = 1` est enregistré dans le hip (`render/_ad_final.hiplc` et `CeramicGreen_Height_V5.hiplc`), et le calcul 4096 x 4096 est lancé (voir `Protocol1.md` phase 9).
+
+## Rendu final dans Unreal, 1 October 2026
+
+- 1 October 2026 : les 720 images en 4096 x 4096 sont rendues par Unreal 5.8 (Lumen, Movie Render Queue) dans `render/final_ue/`: reprise des images 240 à 720 en 21,6 minutes (2,7 s par image, 0,37 image par seconde), contre 142 s par image sous Karma XPU (environ 53 fois plus vite).
+- 1 October 2026 : mesure de contrôle (`Scripts/CheckUeFrames.py`): luminance médiane Unreal contre Houdini studio entre -0,25 et +0,09 stop sur sept images; rotation des sphères du plan 5 (images 481 à 520) -79 degrés dans les deux moteurs; coupes sèches des images 520/521 et 560/561 en un seul saut; teinte de la sphère verte moins rouge que Houdini (R/G 0,79 contre 0,87, B/G 0,45 contre 0,54), ouvert (BUG-19).
+- 1 October 2026 : planche `storyboard/S004_2026-10-01_unreal_lumen_final.png` faite depuis les images Unreal; film `render/ceramic-tiles-ad-4096-24fps.mov` (HEVC hvc1, 324 Mo) et `render/ceramic-tiles-ad-2048-24fps.mp4` (H.264, 137 Mo), 720 images, 30,00 s, 24 i/s, contrôlés par ffprobe (PASS).
