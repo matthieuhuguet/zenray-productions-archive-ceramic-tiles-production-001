@@ -1,0 +1,19 @@
+# H003 micro_scale_0_2
+Date: 30 September 2026, 22:05
+
+Frame: render/frames/CeramicGreen_V6_frame_035.png
+
+| measure | 01a | mine | ratio mine / 01a |
+|---|---|---|---|
+| frac_lum>0.40 | 0.0979 | 0.0462 | 0.47 |
+| frac_lum>0.50 | 0.0340 | 0.0112 | 0.33 |
+| frac_lum>0.60 | 0.0122 | 0.0021 | 0.17 |
+| frac_lum>0.75 | 0.0026 | 0.0004 | 0.15 |
+| blobs | 5700.0000 | 9432.0000 | 1.65 |
+| blob_mean_area | 6.9528 | 1.3839 | 0.20 |
+| blob_area_p90 | 7.0000 | 2.0000 | 0.29 |
+| whiteness_of_highlights | 0.7669 | 0.8231 | 1.07 |
+| gx/gy_streakiness | 0.9544 | 1.0050 | 1.05 |
+| mean_lum | 0.2306 | 0.2063 | 0.89 |
+| p99 | 0.6196 | 0.5059 | 0.82 |
+| p99.9 | 0.8850 | 0.6575 | 0.74 |

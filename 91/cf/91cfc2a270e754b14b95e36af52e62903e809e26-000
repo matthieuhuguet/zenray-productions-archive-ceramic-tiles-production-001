@@ -1,0 +1,19 @@
+# H002 struct_blur0_microtoostrong
+Date: 30 September 2026, 22:03
+
+Frame: render/frames/CeramicGreen_V6_frame_034.png
+
+| measure | 01a | mine | ratio mine / 01a |
+|---|---|---|---|
+| frac_lum>0.40 | 0.0979 | 0.0368 | 0.38 |
+| frac_lum>0.50 | 0.0340 | 0.0079 | 0.23 |
+| frac_lum>0.60 | 0.0122 | 0.0017 | 0.14 |
+| frac_lum>0.75 | 0.0026 | 0.0004 | 0.14 |
+| blobs | 5700.0000 | 5315.0000 | 0.93 |
+| blob_mean_area | 6.9528 | 1.7437 | 0.25 |
+| blob_area_p90 | 7.0000 | 3.0000 | 0.43 |
+| whiteness_of_highlights | 0.7669 | 0.7879 | 1.03 |
+| gx/gy_streakiness | 0.9544 | 1.0065 | 1.05 |
+| mean_lum | 0.2306 | 0.2013 | 0.87 |
+| p99 | 0.6196 | 0.4876 | 0.79 |
+| p99.9 | 0.8850 | 0.6471 | 0.73 |

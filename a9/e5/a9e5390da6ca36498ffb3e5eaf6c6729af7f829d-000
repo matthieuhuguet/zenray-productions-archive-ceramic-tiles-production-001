@@ -1,0 +1,19 @@
+# H001 baseline_frame033
+Date: 30 September 2026, 21:59
+
+Frame: render/frames/CeramicGreen_V6_frame_033.png
+
+| measure | 01a | mine | ratio mine / 01a |
+|---|---|---|---|
+| frac_lum>0.40 | 0.0979 | 0.0761 | 0.78 |
+| frac_lum>0.50 | 0.0340 | 0.0332 | 0.98 |
+| frac_lum>0.60 | 0.0122 | 0.0226 | 1.86 |
+| frac_lum>0.75 | 0.0026 | 0.0162 | 6.18 |
+| blobs | 5700.0000 | 2925.0000 | 0.51 |
+| blob_mean_area | 6.9528 | 13.2588 | 1.91 |
+| blob_area_p90 | 7.0000 | 18.0000 | 2.57 |
+| whiteness_of_highlights | 0.7669 | 0.9105 | 1.19 |
+| gx/gy_streakiness | 0.9544 | 0.9930 | 1.04 |
+| mean_lum | 0.2306 | 0.2380 | 1.03 |
+| p99 | 0.6196 | 1.0000 | 1.61 |
+| p99.9 | 0.8850 | 1.0000 | 1.13 |
