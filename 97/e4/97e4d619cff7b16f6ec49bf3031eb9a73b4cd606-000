@@ -1,0 +1,91 @@
+# 30 September 2026 : V8 = V7 + 64 colour layers that make the RENDER match the final render 01a, in four families of 16 (Matthieu: "64 layers pour que la couleur soit identique a la ref + grain + paillette + saleté"):
+#   G  16 calibration layers : 8 gain layers by distance to the nearest arc + 8 vignette row layers (gains measured class by class by Scripts/CalibrateRenderToRef.py, stored in ref-maps/colour_calib.json)
+#   R  16 grain layers       : fine LUMINANCE grain (the grain of 01a is lightness noise: first principal direction 0.60 0.60 0.53, std 0.042, the others 0.01), 4 frequencies x 4 kinds
+#   P  16 sparkle layers     : pale greenish white micro specks (mean 0.37 0.43 0.31, 1.6 percent of the glaze), 4 sizes x 4 kinds
+#   Q  16 dirt layers        : baked dirt, dark green brown patches and smudges (4.8 percent of the glaze, deficit 0.07), bigger near the walls on the dish side, 4 scales x 4 kinds
+# Every layer = ONE wrangle (a delta, alpha 0) + ONE blend; the gain layers are multiplied at the end. Amplitudes are multiplied by the HDA parameters (grain = mottle_gain, sparkles = fixed (the speck_amount parameter was replaced by glaze_hue on 30 September 2026), dirt = fringe_gain).
+# FR : V8 = V7 + 64 couches de couleur pour que le rendu colle a 01a : etalonnage (16), grain (16), paillettes (16), saleté (16).
+import hou, runpy, json, numpy as np
+B = '/Users/zenray/.claude/tmp/tmp-houdini-september-2026/tmp-materials-substance-copernicus-30-09-2026/'
+G7 = runpy.run_path(B + 'Scripts/BuildCeramicGreenAlbedoV7.py')
+net, G = G7['net'], G7['G']
+node, vex, UV, SM = G['node'], G['vex'], G7['UV'], G7['SM']
+CAL = json.load(open(B + 'ref-maps/colour_calib.json'))
+PCA = json.load(open(B + 'ref-maps/01a_texture_pca.json'))
+NOISE_STD = 0.103
+P8 = {
+    'grain': {'freqs': [700, 1100, 1700, 2600], 'std_total': 0.105},             # albedo-level std of the four frequencies together, per kind (tuned by measure, see C<N> reports)
+    'speck': {'freqs': [900, 1500, 2200, 3200], 'cut': 0.756, 'amp': 0.5},
+    'dirt':  {'scales': [9, 22, 55, 140], 'amp': 0.030},
+}
+base = G7['c']                                                                       # the last albedo add node of V7 (measured profile + clouds + contour layers + specks)
+layers = []
+def noise3(f, z): return 'noise(set(@P.x * %s, @P.y * %s, %f))' % (repr(float(f)), repr(float(f)), z)
+def add(prev, name, lay):
+    n = node(net, 'blend', name, [prev, lay], mode=3); layers.append(n.name()); return n
+def L(name, src, code):
+    n = vex(net, name, [src], UV + code); layers.append(n.name()); return n        # UV = the sm() helper and the tile local coordinates
+sdn = net.node('Y0_arcs__signed_distance_to_the_nearest_arc_negative_inside')       # signed distance to the nearest arc, negative inside (tile units)
+pos = net.node('E3_joints__distance_to_tile_edge')                                   # any field: only used to get the canvas position in a wrangle
+c = base
+# ------------------------------------------------------------------------------------------------ G : calibration (gain accumulator starting at 1)
+gain0 = vex(net, 'G0_gain__start_at_one', [pos], 'p@C = set(1.0, 1.0, 1.0, 1.0);\n'); layers.append(gain0.name())
+centres = [x / 270.0 for x in CAL['centres_px']]
+gacc = gain0
+for i in range(8):
+    lo = centres[i - 1] if i > 0 else None; hi = centres[i + 1] if i < 7 else None
+    w = 'float ad = abs(p@C.x);\nfloat w = %s;\n' % ('0.0')
+    # hat weight of band i over the distance: rises from the previous centre, falls to the next centre (the last band stays 1 beyond its centre, the first stays 1 below its centre)
+    rise = '1.0' if lo is None else 'clamp((ad - %f) / %f, 0.0, 1.0)' % (lo, centres[i] - lo)
+    fall = '1.0' if hi is None else '1.0 - clamp((ad - %f) / %f, 0.0, 1.0)' % (centres[i], hi - centres[i])
+    g = CAL['band_gains'][i]
+    code = 'float ad = abs(p@C.x);\nfloat w = (%s) * (%s);\np@C = set((%f - 1.0) * w, (%f - 1.0) * w, (%f - 1.0) * w, 0.0);   // gain delta of the band %d (centre %.1f px)\n' % (rise, fall, g[0], g[1], g[2], i, CAL['centres_px'][i])
+    lay = L(f'G1_band{i}__gain_by_distance_to_the_arc_{CAL["centres_px"][i]}px', sdn, code)
+    gacc = add(gacc, f'G2_band{i}__add_band_gain', lay)
+vig = np.array(CAL['vig'])                                                          # 8 x 8 x 3, row = top to bottom, column = left to right
+for i in range(8):
+    cols = ', '.join('%.4f' % v for v in vig[i, :, 0]); colg = ', '.join('%.4f' % v for v in vig[i, :, 1]); colb = ', '.join('%.4f' % v for v in vig[i, :, 2])
+    code = ('float yn = 0.5 - @P.y * 0.5;\nfloat xn = @P.x * 0.5 + 0.5;\nfloat wy = max(0.0, 1.0 - abs(yn * 8.0 - %f));\n'
+            'float CR[] = {%s};\nfloat CG[] = {%s};\nfloat CB[] = {%s};\n'
+            'float fx = clamp(xn * 8.0 - 0.5, 0.0, 6.9999); int j = int(fx); float ft = fx - j;\n'
+            'float gr = lerp(CR[j], CR[j + 1], ft); float gg = lerp(CG[j], CG[j + 1], ft); float gb = lerp(CB[j], CB[j + 1], ft);\n'
+            'p@C = set((gr - 1.0) * wy, (gg - 1.0) * wy, (gb - 1.0) * wy, 0.0);   // vignette row %d\n') % (i + 0.5, cols, colg, colb, i)
+    lay = L(f'G3_vig_row{i}__vignette_gain_of_row_{i}', pos, code)
+    gacc = add(gacc, f'G4_vig_row{i}__add_vignette_row', lay)
+# ------------------------------------------------------------------------------------------------ R : grain (luminance)
+kinds = [('bright', (1.0, 1.0, 0.88)), ('dark', (-1.0, -1.0, -0.88)), ('warm', (0.9, 0.8, 0.45)), ('cool', (0.55, 0.8, 0.95))]
+sd = P8['grain']['std_total'] / (len(P8['grain']['freqs']) * len(kinds)) ** 0.5
+MG = G['CH']('mottle_gain')
+for fi, f in enumerate(P8['grain']['freqs']):
+    for ki, (kn, dv) in enumerate(kinds):
+        code = 'float n = (%s - 0.5) / %f * %f * %s;\np@C = set(n * %f, n * %f, n * %f, 0.0);\n' % (noise3(f, 1100 + 11 * fi + 3 * ki), NOISE_STD, sd * 1.0, MG, dv[0], dv[1], dv[2])
+        lay = L(f'R1_grain_{kn}_f{f}__luminance_grain_{kn}', pos, code); c = add(c, f'R2_grain_{kn}_f{f}__add_grain', lay)
+# ------------------------------------------------------------------------------------------------ P : sparkles
+skinds = [('white', (0.95, 1.0, 1.0)), ('paleblue', (0.85, 1.0, 1.08)), ('palegreen', (0.85, 1.0, 0.85)), ('bright', (1.15, 1.2, 1.2))]   # the specks of 01a are pale blue grey
+for fi, f in enumerate(P8['speck']['freqs']):
+    for ki, (kn, dv) in enumerate(skinds):
+        cut = P8['speck']['cut'] + 0.01 * ki - 0.004 * fi + 0.0
+        code = 'float s = sm(%f + %s, %f + %s, %s) * %f;\np@C = set(s * %f, s * %f, s * %f, 0.0);\n' % (cut, '0.0', cut + 0.012, '0.0', noise3(f, 1200 + 11 * fi + 3 * ki), P8['speck']['amp'] * (1.0 if ki < 3 else 1.4), dv[0], dv[1], dv[2])
+        lay = L(f'P1_speck_{kn}_f{f}__micro_specks_{kn}', pos, code); c = add(c, f'P2_speck_{kn}_f{f}__add_specks', lay)
+# ------------------------------------------------------------------------------------------------ Q : dirt (dark patches, smudges, grime near the walls)
+FG = G['CH']('fringe_gain')
+dkinds = [('greenpatch', (-0.35, -0.42, -0.22), 'flat'), ('brownsmudge', (-0.55, -0.45, -0.18), 'flat'), ('wallgrime', (-0.45, -0.40, -0.20), 'wall'), ('streak', (-0.50, -0.50, -0.30), 'streak')]
+for si, sc in enumerate(P8['dirt']['scales']):
+    for ki, (kn, dv, mode) in enumerate(dkinds):
+        if mode == 'flat': core = 'float n = sm(0.50, 0.72, %s);\nfloat k = n * %f;\n' % (noise3(sc, 1300 + 11 * si + 3 * ki), P8['dirt']['amp'])
+        elif mode == 'wall': core = 'float dish = p@C.x < 0.0 ? -p@C.x : 9.0;\nfloat env = 1.0 - sm(0.02, 0.10, dish);\nfloat n = sm(0.46, 0.70, %s);\nfloat k = env * n * %f * 1.6;\n' % (noise3(sc, 1300 + 11 * si + 3 * ki), P8['dirt']['amp'])
+        else: core = 'float n = sm(0.52, 0.75, noise(set(@P.x * %f, @P.y * %f, %f)));\nfloat k = n * %f;\n' % (sc * 0.25, sc * 2.0, 1300 + 11 * si + 3 * ki, P8['dirt']['amp'])
+        code = core + 'k *= %s;\np@C = set(k * %f, k * %f, k * %f, 0.0);\n' % (FG, dv[0], dv[1], dv[2])
+        lay = L(f'Q1_dirt_{kn}_s{sc}__baked_dirt_{kn}', sdn if mode == 'wall' else pos, code); c = add(c, f'Q2_dirt_{kn}_s{sc}__add_dirt', lay)
+assert len([n for n in layers if n.split('_')[0] in ('R1', 'R2', 'P1', 'P2', 'Q1', 'Q2', 'G1', 'G2', 'G3', 'G4')]) == 128, len(layers)
+# ------------------------------------------------------------------------------------------------ final : albedo x gain
+mult = node(net, 'blend', 'ZE_albedo__times_the_calibration_gain', [c, gacc], mode=5); layers.append(mult.name())
+out = node(net, 'null', 'ZF_BASECOLOR__ceramic_green_v8', [mult]); layers.append(out.name())
+net.node('FINAL_3_BASECOLOR').setInput(0, out); net.node('U4_export__basecolor_v6').setInput(0, out)
+# layout: its own box
+x0 = max(n.position().x() for n in net.children() if n.name() not in layers) + 6
+box = net.createNetworkBox(); box.setComment('AA  COLOUR 64 layers: calibration 16, grain 16, sparkles 16, dirt 16 (+ the gain multiply)'); box.setColor(hou.Color((0.85, 0.55, 0.30)))
+for i, nm in enumerate(layers):
+    n = net.node(nm); n.setPosition(hou.Vector2(x0 + (i // 16) * 3.2, -(i % 16) * 1.1)); n.setColor(hou.Color((0.85, 0.55, 0.30))); box.addItem(n)
+box.fitAroundContents()
+result = (len(net.children()), len(layers))

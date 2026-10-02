@@ -1,0 +1,266 @@
+# 30 September 2026 : ceramic green tiles, HEIGHT + NORMAL, version 5. Same recipe as V4 (halos around the arcs combined by MAXIMUM, a smooth
+# radial base, a joint groove; see julien-delannoy-pattern.gif) but every curve is evaluated by VEX cubic interpolation instead of a remap ramp.
+# Why (30 September 2026): a remap ramp is baked into a lookup table of limited resolution, which turned the smooth halos into steps of 2 to 3 px
+# that showed as bands and blocks in the normal map; VEX evaluates the curve at full float precision per pixel.
+# Curves come from the least-squares fit of the REAL height map (ref-maps/fit_height_max.json, Scripts/FitHeightMaxModel.py).
+# FR : height + normale V5 ; les courbes sont evaluees en VEX (interpolation cubique) au lieu de rampes remap, dont la table quantifiee faisait des paliers.
+import hou, json
+
+NET = '/obj/CeramicGreen_Height'
+exec(open('/Users/zenray/.claude/tmp/tmp-houdini-september-2026/tmp-materials-substance-copernicus-30-09-2026/Scripts/CeramicGreenParams.py').read())
+exec(open('/Users/zenray/.claude/tmp/tmp-houdini-september-2026/tmp-materials-substance-copernicus-30-09-2026/Scripts/CeramicGreenLayout.py').read())   # LAYOUT_VEX   # HDA interface: CH(name), SPEC, make_controls
+OUT_DIR = '/Users/zenray/.claude/tmp/tmp-houdini-september-2026/tmp-materials-substance-copernicus-30-09-2026'
+FIT = json.load(open(OUT_DIR + '/ref-maps/fit_height_max.json'))
+P = {
+    'res': 1920, 'tiles': 4,
+    'radius': 0.498,                            # 30 September 2026 : measured on ref_basecolor.png with the fitted geometry (was 0.4975 from the height fit)
+    'radius_fit_unused': FIT['radius'],                    # 0.4975 tile, measured on the real height (30 September 2026)
+    'weak_parity': 0,                           # tile (row + col) % 2 == weak_parity  ->  TL is the faint arc, otherwise BR (30 September 2026)
+    'strong_keys': list(zip(FIT['halo_knots'], FIT['strong'])),   # replaced below by the uniform dish profile
+    'weak_keys': list(zip(FIT['halo_knots'], FIT['weak'])),
+    'joint_keys': list(zip(FIT['edge_knots'], FIT['edge_values'])),
+    'radial_keys': list(zip(FIT['radial_knots'], FIT['radial_values'])),   # replaced below by a flat base
+    'normal_scale': 0.06,
+    'rough_keys': [(0.0, 0.25), (0.004, 0.13), (0.008, 0.09), (0.014, 0.054), (0.03, 0.047), (0.5, 0.045)],   # 30 September 2026
+    'glaze_rgb': (0.21, 0.35, 0.14),           # 30 September 2026 : green glaze read on the reference strip
+    'joint_weight_keys': [(0.0, 1.0), (0.001, 0.7), (0.002, 0.0), (0.5, 0.0)],
+    'ring_weight_keys': [(0.0, 0.0), (0.30, 0.0), (0.38, 0.7), (0.50, 1.0), (0.9, 1.0)],   # 30 September 2026 : the WHOLE steep wall is tan clay (REF_DESCRIPTION_arches.md)
+    'grout_delta': (0.445, 0.199, 0.221),   # 30 September 2026 : brown ochre gold (about 0.51, 0.38, 0.18) instead of yellow-green;         # orange grout (0.76, 0.52, 0.28) minus glaze
+    'grain_freq': 220.0, 'speck_freq': 700.0, 'speck_cut': 0.78, 'tile_tint_amp': 0.6,   # 30 September 2026
+    'cloud_freq': 2.4, 'cloud_amp': (0.16, 0.22, 0.10),
+    'ao_ring_keys': [(0.0, 0.90), (0.50, 0.90), (0.60, 0.93), (0.645, 1.0), (0.80, 1.0)],   # 30 September 2026 : ring narrowed after the first comparison
+    'ao_joint_keys': [(0.0, 0.42), (0.003, 0.76), (0.006, 0.88), (0.010, 0.99), (0.5, 1.0)],
+    'bowl_round_px': 12.0,      # 30 September 2026 : Gaussian radius in pixels that rounds the crease where the distance to the nearest arc changes arc (medial axis); it made cross shaped seams and polygons in the normal map. FR : rayon qui arrondit le pli des axes medians.
+    'bowl_width': 0.16, 'bowl_flat': 0.35,      # 30 September 2026 : width (tile units) over which the dish floor descends from the wall, and the share of the depth that is a flat step
+    'softmax_k': 45.0,      # 30 September 2026 : sharpness of the smooth maximum; a hard max leaves a kink along the mid-tile lines, visible as steps in the normal
+}
+# 30 September 2026, feedback on frame 003: each connected region between the arcs must be dug as ONE uniform dish, continuous across the tile joints: a steep wall
+# right under the rim, then a flat smooth floor, and NO per-tile radial pillow. The fitted long soft tails and the radial base are therefore replaced (the fit is kept in the JSON).
+# FR : chaque region reliee entre les arcs est creusee comme une seule cuvette uniforme, continue a travers les joints : paroi raide sous le bord, fond plat, pas de coussin par carreau.
+P['strong_keys'] = [(0.0, 0.70), (0.006, 0.69), (0.010, 0.62), (0.014, 0.48), (0.020, 0.36), (0.032, 0.30), (0.06, 0.295), (0.12, 0.28), (0.22, 0.245), (0.4, 0.215), (1.5, 0.20)]   # 30 September 2026 : the floor keeps sloping down away from the wall, so every region is a BOWL (soft gradient like 01a)   # 30 September 2026 : laser-cut wall, steeper
+P['weak_keys'] = [(0.0, 0.30), (0.02, 0.292), (0.05, 0.280), (0.09, 0.270), (0.15, 0.264), (0.3, 0.262), (1.5, 0.26)]
+P['radial_keys'] = [(0.0, 0.0), (0.72, 0.0)]
+# 30 September 2026 (feedback: the small circles are thinner in px): measured on ref_basecolor.png with the full circle model (Scripts/FitRefStrip.py): the corner arcs are about 13 px wide at half maximum
+# (tile 407 px), the inscribed circles about 7 px, so the inscribed circle ridge uses the same profile squeezed by 0.55. FR : les petits cercles sont plus fins en px.
+P['centre_keys'] = list(P['strong_keys'])   # the width factor is now the HDA parameter small_circle_width (default 0.55)
+P['joint_keys'] = [(0.0, -0.05), (0.001, -0.045), (0.002, -0.01), (0.003, 0.0), (0.5, 0.0)]   # 30 September 2026 : shallow hairline joint (was -0.30, rendered as a thick black line)   # 30 September 2026 : thin crisp laser joint
+CORNERS = ['TL', 'TR', 'BL', 'BR']
+UV_CORNER = {'TL': (0, 0), 'TR': (1, 0), 'BL': (0, 1), 'BR': (1, 1)}     # in tile units, v measured downwards from the top edge
+
+CURVE_FN = '''// 30 September 2026 : cubic Hermite through the knots, tangents by finite differences; flat outside the first and last knot.
+float curve_eval(float x; float K[]; float V[]) {
+    int n = len(K);
+    if (x <= K[0]) return V[0];
+    if (x >= K[n - 1]) return V[n - 1];
+    int i = 0;
+    while (i < n - 2 && x > K[i + 1]) i++;
+    float h = K[i + 1] - K[i];
+    float t = (x - K[i]) / h;
+    float m0 = (i > 0) ? (V[i + 1] - V[i - 1]) / (K[i + 1] - K[i - 1]) : (V[i + 1] - V[i]) / h;
+    float m1 = (i < n - 2) ? (V[i + 2] - V[i]) / (K[i + 2] - K[i]) : (V[i + 1] - V[i]) / h;
+    float t2 = t * t, t3 = t2 * t;
+    return (2 * t3 - 3 * t2 + 1) * V[i] + (t3 - 2 * t2 + t) * h * m0 + (-2 * t3 + 3 * t2) * V[i + 1] + (t3 - t2) * h * m1;
+}
+'''
+
+
+def arr(name, values):
+    return 'float %s[] = {%s};' % (name, ', '.join('%.6f' % v for v in values))
+
+
+def node(net, kind, name, inputs=(), **parms):
+    n = net.node(name) or net.createNode(kind, name)
+    for i, src in enumerate(inputs):
+        if src is not None:
+            n.setInput(i, src[0] if isinstance(src, tuple) else src, src[1] if isinstance(src, tuple) else 0)
+    for k, v in parms.items():
+        n.parm(k).set(v)
+    return n
+
+
+def vex(net, name, inputs, code):
+    n = node(net, 'wrangle', name, inputs)
+    n.parm('vexsnippet').set(code)
+    return n
+
+
+def curve_node(net, name, src, keys, wexpr='1.0', hexpr=None):
+    # a mono field in, the same field passed through the curve out (VEX, full float precision)
+    ks = [k for k, _ in keys]; vs = [v for _, v in keys]
+    return vex(net, name, [src], CURVE_FN + arr('K', ks) + '\n' + arr('V', vs) + '\nfloat x = p@C.x / max(%s, 0.0001);   // 30 September 2026 : layers are RGBA vector4 here, read red and write grey; wexpr = HDA width factor\nfloat y = curve_eval(x, K, V);\n%sp@C = set(y, y, y, 1.0);\n' % (wexpr, ('y = K_FLOOR + (y - K_FLOOR) * %s;   // HDA height factor\n' % hexpr).replace('K_FLOOR', '%.5f' % vs[-1]) if hexpr else ''))
+
+
+TABLE_VEX = '''// 30 September 2026 : per corner, 1 = full arc and 0 = the fainter fourth arc. Measured on the real height: even rows keep TL faint,
+// odd rows keep BR faint; the checkerboard runs on (row + col). FR : 1 = arc plein, 0 = quatrieme arc faible.
+int n = %(tiles)d;
+int col = clamp(int((@P.x * 0.5 + 0.5) * n), 0, n - 1);
+int row = clamp(int((0.5 - @P.y * 0.5) * n), 0, n - 1);      // P.y = +1 is the TOP of the canvas, row 0 is the top row
+int tlweak = ((row + col) %% 2 == %(parity)d) ? 1 : 0;
+p@C = set(tlweak ? 0.0 : 1.0, 1.0, 1.0, tlweak ? 1.0 : 0.0);
+'''
+
+UV_VEX = '''// 30 September 2026 : tile-local coordinates in tile units (0..1, v measured DOWN from the top edge), computed from the canvas position @P,
+// because the Tile Pattern uv layer is not readable as an attribute in a wrangle. FR : coordonnees locales au carreau, calculees depuis @P.
+float u = frac((@P.x * 0.5 + 0.5) * %(tiles)d);
+float v = frac((0.5 - @P.y * 0.5) * %(tiles)d);
+'''
+
+ARC_VEX = UV_VEX + '''float d = abs(length(set(u - %(cu)d, v - %(cv)d)) - %(radius)s);
+p@C = set(d, d, d, 1.0);
+'''
+
+EDGE_VEX = UV_VEX + '''float d = min(min(u, 1.0 - u), min(v, 1.0 - v));   // distance to the nearest tile edge
+p@C = set(d, d, d, 1.0);
+'''
+
+CENTRE_VEX = UV_VEX + '''float d = length(set(u - 0.5, v - 0.5));          // distance from the tile centre
+p@C = set(d, d, d, 1.0);
+'''
+
+CLOUD_VEX = '''// 30 September 2026 : glaze variation as a colour delta (alpha 0 so that Add really adds): large soft clouds, one random tint per tile, fine mottling and
+// sparse light speckles, as seen on the final render. FR : variation de glacure : nuages, une teinte par carreau, grain fin, points clairs epars.
+float n = noise(set(@P.x * %(freq).3f, @P.y * %(freq).3f, 3.1)) + 0.5 * noise(set(@P.x * %(freq2).3f, @P.y * %(freq2).3f, 9.7)) - 0.75;
+int tc = int((@P.x * 0.5 + 0.5) * %(tiles)d);
+int tr = int((0.5 - @P.y * 0.5) * %(tiles)d);
+float tile_r = rand(tc * 7.13 + tr * 3.71 + 0.5) - 0.5;
+float mott = noise(set(@P.x * %(grain_freq).1f, @P.y * %(grain_freq).1f, 1.3)) - 0.5;
+float sp = noise(set(@P.x * %(speck_freq).1f, @P.y * %(speck_freq).1f, 5.9));
+float speck = smooth(%(speck_cut).3f, %(speck_cut).3f + 0.03, sp);
+float k = n + tile_r * %(tile_amp).3f + mott * 0.25;
+p@C = set(k * %(ax).4f + speck * 0.10, k * %(ay).4f + speck * 0.11, k * %(az).4f + speck * 0.08, 0.0);
+'''
+
+
+def build():
+    net = hou.node(NET)
+    make_controls(net)                                   # spare parameters survive the rebuild, tweaked values are kept
+    for c in net.children():
+        c.destroy()
+    net.parm('setres').set(1); net.parm('res1').set(P['res']); net.parm('res2').set(P['res'])
+    S = {}
+    def reg(sec, *nodes):
+        S.setdefault(sec, []).extend(n.name() for n in nodes)
+
+    # A  LAYOUT ------------------------------------------------------------------------------------------------------
+    lay = node(net, 'tilepattern', 'A1_layout__tile_grid_4x4', patterntype=0, patternmode=1, stackbond_rows=P['tiles'], stackbond_cols=P['tiles'])
+    lay.parm('stackbond_tilewidth').set(2.0 / P['tiles']); lay.parm('stackbond_tileheight').set(2.0 / P['tiles'])
+    reg('A  LAYOUT  the tile grid', lay)
+    uv = (lay, 2)
+
+    # B  THE LAYOUT: DISTANCE TO THE A CIRCLE AND TO THE B CIRCLE OF EACH QUADRANT ------------------------------------------------------
+    # 30 September 2026: the motif is data (CeramicGreenLayout.py): per tile and per quadrant, a quarter circle centred on the corner (A), on the tile centre (B), both (lens) or none.
+    pre = (UV_VEX % {'tiles': P['tiles']}) + 'int tc = clamp(int((@P.x * 0.5 + 0.5) * %d.0), 0, %d);\nint tr = clamp(int((0.5 - @P.y * 0.5) * %d.0), 0, %d);\n' % (P['tiles'], P['tiles'] - 1, P['tiles'], P['tiles'] - 1)
+    lay_n = vex(net, 'B1_layout__signed_distance_to_the_A_and_B_circles', [uv], LAYOUT_VEX + pre + 'float dA; float dB; float dsh;\nlay(LT01A, LC01A, tc, tr, u, v, %s, int(%s + 0.5), dA, dB, dsh);\np@C = set(dA, dB, dsh, 1.0);   // red = corner circle, green = tile centre circle, blue = dish parity (1 = hollow dish)\n' % (CH('ring_radius'), CH('layout_source')))
+    dAn = vex(net, 'B2_layout__distance_to_the_corner_circle', [lay_n], 'float d = abs(p@C.x);\np@C = set(d, d, d, 1.0);\n')
+    dBn = vex(net, 'B3_layout__distance_to_the_tile_centre_circle', [lay_n], 'float d = abs(p@C.y);\np@C = set(d, d, d, 1.0);\n')
+    reg('B  LAYOUT  which arcs are drawn, and the distance to them', lay_n, dAn, dBn)
+
+    # C  THE GLOW OF EACH FAMILY: corner circles (A) and tile centre circles (B, thinner) -------------------------------------------------------
+    gA = curve_node(net, 'C1_glow__of_the_corner_circles', dAn, P['strong_keys'], CH('arc_width'), CH('wall_height'))
+    gB = curve_node(net, 'C2_glow__of_the_tile_centre_circles', dBn, P['centre_keys'], CH('arc_width') + ' * ' + CH('small_circle_width'), CH('wall_height'))
+    wA = vex(net, 'C3_glow__soft_weight_of_A', [gA], 'float g = p@C.x;\nfloat w = exp(%.4f * g);\np@C = set(w, w, w, 1.0);   // part of the smooth maximum\n' % P['softmax_k'])
+    wB = vex(net, 'C4_glow__soft_weight_of_B', [gB], 'float g = p@C.x;\nfloat w = exp(%.4f * g);\np@C = set(w, w, w, 1.0);\n' % P['softmax_k'])
+    reg('C  GLOW  one curve per family', gA, gB, wA, wB)
+
+    # D  THE HIGHEST GLOW WINS (smooth maximum) --------------------------------------------------------------------------------------------
+    s3 = node(net, 'blend', 'D1_glow__weights_of_A_and_B', [wA, wB], mode=3)
+    glow = vex(net, 'D4_glow__smooth_highest_of_the_four_corners', [s3], 'float w = p@C.x;\nfloat g = log(max(w, 1e-9)) / %.4f;\np@C = set(g, g, g, 1.0);\n' % P['softmax_k'])
+    reg('D  GLOW  smooth highest wins', s3, glow)
+
+    # E  BASE: SMOOTH RADIAL GRADIENT + JOINT GROOVE ------------------------------------------------------------------------
+    centre = vex(net, 'E1_base__distance_from_tile_centre', [uv], CENTRE_VEX % {'tiles': P['tiles']})
+    rbase = curve_node(net, 'E2_base__smooth_radial_profile', centre, P['radial_keys'])
+    edge = vex(net, 'E3_joints__distance_to_tile_edge', [uv], EDGE_VEX % {'tiles': P['tiles']})
+    groove = curve_node(net, 'E4_joints__groove_profile', edge, P['joint_keys'], CH('joint_width'))
+    with_base = node(net, 'blend', 'E5_relief__glow_plus_radial_base', [glow, rbase], mode=3)
+    height0 = node(net, 'blend', 'E6_relief__plus_joint_groove', [with_base, groove], mode=3)
+    # 30 September 2026 (feedback: every ceramic is dished INWARDS, each connected region dug uniformly): the regions of the dish colour of the two colour layout are lowered by the HDA parameter dish_depth.
+    # FR : l'interieur de chaque cercle dessine est abaisse sous le plateau plat (cuvettes creusees vers l'interieur).
+    # 30 September 2026 : the bowl profile is computed alone, blurred to round the crease of the nearest-arc distance (medial axis), then multiplied by the dish parity so that the walls stay sharp.
+    # FR : le profil de bol est calcule seul, floute pour arrondir le pli de l'axe median, puis multiplie par la parite de cuvette : les murs restent nets.
+    bowl0 = vex(net, 'E8a_relief__bowl_profile_from_the_distance_to_the_arcs', [lay_n], 'float dd = min(abs(p@C.x), abs(p@C.y));      // distance to the nearest arc, tile units\nfloat bowl = smooth(0.0, %f, dd);             // 0 at the wall, 1 far from it\np@C = set(bowl, bowl, bowl, 1.0);\n' % P['bowl_width'])
+    bowl1 = node(net, 'blur', 'E8b_relief__bowl_rounded_at_the_crease', [bowl0], units=1, size_pixel=P['bowl_round_px'], filter=1)
+    floor1 = vex(net, 'E8c_relief__bowl_floor_shape', [bowl1], 'float f = %f + (1.0 - %f) * p@C.x;     // flat step share + bowl share\np@C = set(f, f, f, 1.0);\n' % (P['bowl_flat'], P['bowl_flat']))
+    kmap = vex(net, 'E8d_relief__dish_parity', [lay_n], 'float k = p@C.z;   // 1 = hollow dish\np@C = set(k, k, k, 1.0);\n')
+    prod = node(net, 'blend', 'E8e_relief__parity_times_floor_shape', [kmap, floor1], mode=5)
+    dish = vex(net, 'E8_relief__dish_floor_lowered_inside_the_circles', [prod], 'float d = -%s * p@C.x;\np@C = set(d, d, d, 1.0);   // 30 September 2026 : the dish is a BOWL (concave) not a flat step, so that the coat reflects the light along crescents as in 01a\n' % CH('dish_depth'))
+    height = node(net, 'blend', 'E9_relief__plus_dish_floor', [height0, dish], mode=3)
+    mono = node(net, 'channelextract', 'E7_relief__as_one_grey_channel', [height], channel=0)
+    reg('E  BASE  smooth radial base, joint groove, dish floor', centre, rbase, edge, groove, with_base, height0, bowl0, bowl1, floor1, kmap, prod, dish, height, mono)
+
+    # I  OUTPUT ---------------------------------------------------------------------------------------------------------------
+    out = node(net, 'null', 'I1_HEIGHT__ceramic_green_v5', [mono])
+    rop = node(net, 'rop_image', 'I3_export__height_png', [out])
+    rop.parm('copoutput').set(OUT_DIR + '/render/CeramicGreen_V5_height.png'); rop.parm('colorconversion').set('raw')
+    out.setDisplayFlag(True)
+    reg('I  OUTPUT  height', out, rop)
+
+    # J  NORMAL, straight from the height --------------------------------------------------------------------------------------
+    # 30 September 2026, measured against the real normal strip: scale 0.06 gives the same slope spread, the 0..1 (offset) type is what the
+    # reference uses, and its green channel is INVERTED (DirectX). FR : echelle 0.06, type offset 0..1, vert inverse (convention DirectX).
+    nrm = node(net, 'heighttonormal', 'J1_normal__from_height', [out], normaltype=1, scale=P['normal_scale'])
+    flip = vex(net, 'J2_normal__flip_green_for_directx', [nrm], 'v@C = set(@C.x, 1.0 - @C.y, @C.z);   // 30 September 2026 : invert green\n')
+    nrop = node(net, 'rop_image', 'J3_export__normal_png', [flip])
+    nrop.parm('copoutput').set(OUT_DIR + '/render/CeramicGreen_V5_normal.png'); nrop.parm('colorconversion').set('raw')
+    reg('J  NORMAL  from the height, green inverted', nrm, flip, nrop)
+
+    # K  AMBIENT OCCLUSION ---------------------------------------------------------------------------------------------------------
+    # 30 September 2026, measured on ref_ao: flat 0.90 everywhere, the raised arcs are a thin bright ring (up to 1.0, ring width about 0.02 tile = where
+    # the strong glow is above 0.6), and the joints go dark (0.76 on average over the first 0.004 tile, about 0.4 at the very edge).
+    # FR : AO mesuree sur ref_ao : plat a 0.90, anneau clair sur l'arc (jusqu'a 1.0), joints sombres.
+    ao_ring = curve_node(net, 'K1_ao__ring_brightening_from_glow', glow, P['ao_ring_keys'])
+    ao_joint = curve_node(net, 'K2_ao__joint_darkening_from_edge', edge, P['ao_joint_keys'])
+    ao = node(net, 'blend', 'K3_ao__ring_times_joint', [ao_ring, ao_joint], mode=5)
+    ao_out = node(net, 'null', 'K4_AO__ceramic_green_v5', [node(net, 'channelextract', 'K5_ao__as_one_grey_channel', [ao], channel=0)])
+    aorop = node(net, 'rop_image', 'K6_export__ao_png', [ao_out])
+    aorop.parm('copoutput').set(OUT_DIR + '/render/CeramicGreen_V5_ao.png'); aorop.parm('colorconversion').set('raw')
+    reg('K  AO  ring brightening times joint darkening', ao_ring, ao_joint, ao, ao_out.inputs()[0], ao_out, aorop)
+
+    # L  ROUGHNESS ---------------------------------------------------------------------------------------------------------------------
+    # 30 September 2026, measured on ref_roughness: glossy glaze at 0.047 everywhere, rising to 0.20 at the very edge of the joint (0.13 then 0.086 then 0.054).
+    # FR : rugosite mesuree : glacure brillante 0.047 partout, montee a 0.20 au bord du joint.
+    rough = curve_node(net, 'L1_roughness__glaze_and_joint_from_edge', edge, P['rough_keys'])
+    rough_out = node(net, 'null', 'L2_ROUGHNESS__ceramic_green_v5', [node(net, 'channelextract', 'L3_roughness__as_one_grey_channel', [rough], channel=0)])
+    rrop = node(net, 'rop_image', 'L4_export__roughness_png', [rough_out])
+    rrop.parm('copoutput').set(OUT_DIR + '/render/CeramicGreen_V5_roughness.png'); rrop.parm('colorconversion').set('raw')
+    reg('L  ROUGHNESS  glaze and joint', rough, rough_out.inputs()[0], rough_out, rrop)
+
+    # M  BASECOLOR ---------------------------------------------------------------------------------------------------------------------
+    # 30 September 2026, measured on ref_basecolor: green glaze (0.417, 0.462, 0.317), a little lighter near the joints (0.515, 0.50, 0.36), and a slight
+    # lightening where the glow is low (flat centre of the tile). Each layer below is a grey weight multiplied by a colour offset, then added.
+    # FR : couleur de base mesuree : vert (0.417, 0.462, 0.317), plus clair aux joints, leger eclaircissement au centre plat.
+    base = vex(net, 'M1_color__green_glaze_constant', [edge], 'p@C = set(%.4f, %.4f, %.4f, 1.0);   // 30 September 2026 : input ignored on purpose\n' % tuple(P['glaze_rgb']))
+    jw = curve_node(net, 'M2_color__joint_weight_from_edge', edge, P['joint_weight_keys'])
+    rw = curve_node(net, 'M3_color__arc_ring_weight_from_glow', glow, P['ring_weight_keys'])
+    gw_ = node(net, 'blend', 'M4_color__grout_weight_joint_or_ring', [jw, rw], mode=12)
+    jt = vex(net, 'M5_color__grout_tint', [gw_], 'vector4 c = p@C;\np@C = set(c.x * %.4f, c.y * %.4f, c.z * %.4f, 0.0);   // 30 September 2026 : orange grout minus green glaze, alpha 0 so that Add really adds\n' % tuple(P['grout_delta']))
+    ct = vex(net, 'M6_color__cloudy_glaze_variation', [edge], CLOUD_VEX % {'freq': P['cloud_freq'], 'freq2': P['cloud_freq'] * 2.3, 'tiles': P['tiles'], 'grain_freq': P['grain_freq'], 'speck_freq': P['speck_freq'], 'speck_cut': P['speck_cut'], 'tile_amp': P['tile_tint_amp'], 'ax': P['cloud_amp'][0], 'ay': P['cloud_amp'][1], 'az': P['cloud_amp'][2]})
+    m1 = node(net, 'blend', 'M7_color__glaze_plus_grout_tint', [base, jt], mode=3)
+    m2 = node(net, 'blend', 'M8_color__plus_cloudy_variation', [m1, ct], mode=3)
+    col_out = node(net, 'null', 'M9_BASECOLOR__ceramic_green_v5', [m2])
+    crop = node(net, 'rop_image', 'M10_export__basecolor_png', [col_out])
+    crop.parm('copoutput').set(OUT_DIR + '/render/CeramicGreen_V5_basecolor.png'); crop.parm('colorconversion').set('raw')
+    reg('M  BASECOLOR  glaze, orange grout, clouds', base, jw, rw, gw_, jt, ct, m1, m2, col_out, crop)
+    return net, S
+
+
+COLORS = {'A': (0.45, 0.45, 0.50), 'B': (0.55, 0.45, 0.75), 'C': (0.35, 0.52, 0.72), 'D': (0.28, 0.40, 0.58),
+          'E': (0.78, 0.50, 0.40), 'I': (0.25, 0.60, 0.40), 'J': (0.55, 0.45, 0.85), 'K': (0.75, 0.70, 0.35), 'L': (0.60, 0.60, 0.65), 'M': (0.40, 0.70, 0.45)}
+
+
+def tidy(net, S):
+    for b in net.networkBoxes(): b.destroy()
+    x = 0.0
+    for sec, names in S.items():
+        col = COLORS[sec[0]]; per_col = 10
+        for i, nm in enumerate(names):
+            n = net.node(nm); n.setPosition(hou.Vector2(x + (i // per_col) * 3.2, -(i % per_col) * 1.1)); n.setColor(hou.Color(col))
+        box = net.createNetworkBox(); box.setComment(sec); box.setColor(hou.Color(col))
+        for nm in names: box.addItem(net.node(nm))
+        box.fitAroundContents()
+        x += 3.2 * (1 + (len(names) - 1) // per_col) + 1.4
+
+
+if True:
+    _net, _S = build()
+    tidy(_net, _S)

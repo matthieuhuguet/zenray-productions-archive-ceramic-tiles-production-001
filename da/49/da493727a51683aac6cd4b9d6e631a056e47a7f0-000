@@ -1,0 +1,25 @@
+# 30 September 2026 : luminance quantiles and band-pass energy of a render against 01a, written to measures/B<N>_<label>/report.md. Usage: MeasureBands.py <frame.png> <label>
+# FR : quantiles de luminance et energie par bande de frequence, rendu contre 01a.
+import sys, glob, os, numpy as np
+from PIL import Image
+from scipy import ndimage as ndi
+B = os.path.dirname(os.path.dirname(os.path.abspath(__file__))) + '/'
+frame, label = sys.argv[1], sys.argv[2]
+n = len(glob.glob(B + 'measures/B[0-9]*')) + 1
+out = f'{B}measures/B{n:03d}_{label}/'; os.makedirs(out)
+A = np.asarray(Image.open(B + '01a-julien-delannoy-10-left.png').convert('RGB').resize((1080, 1080), Image.LANCZOS), float) / 255
+M = np.asarray(Image.open(B + frame).convert('RGB').resize((1080, 1080), Image.LANCZOS), float) / 255
+L = lambda x: (x * [0.2126, 0.7152, 0.0722]).sum(2)
+la, lb = L(A), L(M)
+q = [1, 2, 5, 10, 20, 30, 50, 70, 80, 90, 95, 98, 99, 99.9]
+rep = ['# bands ' + label, '', 'quantile | ref | mine | ratio']
+for p in q:
+    a_, b_ = np.percentile(la, p), np.percentile(lb, p); rep.append(f'p{p} | {a_:.3f} | {b_:.3f} | {b_/a_:.2f}')
+rep += ['', 'band sigma (px) | ref | mine | ratio']
+bp = lambda x, s1, s2: ndi.gaussian_filter(x, s1) - ndi.gaussian_filter(x, s2)
+for s1, s2 in ((1, 2), (2, 4), (4, 8), (8, 16), (16, 32)):
+    a_, b_ = bp(la, s1, s2).std(), bp(lb, s1, s2).std(); rep.append(f'{s1}-{s2} | {a_:.4f} | {b_:.4f} | {b_/a_:.2f}')
+rep += ['', 'band sigma (px) on luminance clipped at 0.5 (glints excluded) | ref | mine | ratio']
+for s1, s2 in ((1, 2), (2, 4), (4, 8), (8, 16), (16, 32)):
+    a_, b_ = bp(np.minimum(la, .5), s1, s2).std(), bp(np.minimum(lb, .5), s1, s2).std(); rep.append(f'{s1}-{s2} | {a_:.4f} | {b_:.4f} | {b_/a_:.2f}')
+open(out + 'report.md', 'w').write('\n'.join(rep)); print('\n'.join(rep))

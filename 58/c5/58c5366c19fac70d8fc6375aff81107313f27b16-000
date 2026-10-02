@@ -1,0 +1,50 @@
+# 30 September 2026 : the dish / plateau colouring of the layout in CLOSED FORM. Inside a quadrant, parity = (inside A and A drawn) XOR (inside B and B drawn) XOR C[tile, quadrant]. The 64 constants C are fixed by
+# continuity across the quadrant midlines and the tile edges (where no arc lies), a linear system over GF(2) solved by a breadth first search over the 64 quadrants; a contradiction would mean the layout is not a
+# proper two colour map. Output: ref-maps/01a_dish.json {'C': [64 ints], 'contradictions': n}. FR : coloration cuvette / plateau en forme close, constantes par quadrant.
+import json
+T = json.load(open('ref-maps/01a_truchet.json'))
+names = ('TL', 'TR', 'BL', 'BR')
+dr = {}                                                   # drawnA, drawnB per (r, c, k)
+for r in range(4):
+    for c in range(4):
+        for k, nm in enumerate(names):
+            s = T[f'r{r}c{c}'][nm]; dr[(r, c, k)] = (1 if 'A' in s else 0, 1 if 'B' in s else 0)
+def on_edge_state(k, edge):
+    # state (insideA, insideB) of the points on the open boundary `edge` of quadrant k, where edge in {'mid_v','mid_h','tile_l','tile_r','tile_t','tile_b'}
+    # mid_v / mid_h: the midlines towards the tile centre: inside B, outside A. tile edges: inside A (corner circle of the shared corner), outside B.
+    if edge.startswith('mid'): return (0, 1)
+    return (1, 0)
+def parity(rck, inA, inB):
+    a, b = dr[rck]; return (a & inA) ^ (b & inB)
+eqs = []                                                   # (node1, node2, expected difference of C)
+for r in range(4):
+    for c in range(4):
+        # quadrant pairs inside the tile: TL|TR and BL|BR share the vertical midline; TL|BL and TR|BR the horizontal midline
+        for k1, k2 in ((0, 1), (2, 3), (0, 2), (1, 3)):
+            n1, n2 = (r, c, k1), (r, c, k2); st = (0, 1)
+            eqs.append((n1, n2, parity(n1, *st) ^ parity(n2, *st)))
+        # tile edges: right edge of quadrants TR (k=1) and BR (k=3) meets the left edge of TL (0) and BL (2) of the tile on the right; bottom edge of BL/BR meets top edge of TL/TR below
+        if c < 3:
+            for k1, k2 in ((1, 0), (3, 2)):
+                n1, n2 = (r, c, k1), (r, c + 1, k2); st = (1, 0)
+                eqs.append((n1, n2, parity(n1, *st) ^ parity(n2, *st)))
+        if r < 3:
+            for k1, k2 in ((2, 0), (3, 1)):
+                n1, n2 = (r, c, k1), (r + 1, c, k2); st = (1, 0)
+                eqs.append((n1, n2, parity(n1, *st) ^ parity(n2, *st)))
+nodes = [(r, c, k) for r in range(4) for c in range(4) for k in range(4)]
+adj = {n: [] for n in nodes}
+for a, b, d in eqs: adj[a].append((b, d)); adj[b].append((a, d))
+C = {nodes[0]: 0}; queue = [nodes[0]]; contra = 0
+while queue:
+    cur = queue.pop(0)
+    for nb, d in adj[cur]:
+        want = C[cur] ^ d
+        if nb not in C: C[nb] = want; queue.append(nb)
+        elif C[nb] != want: contra += 1
+print('contradictions', contra, '(0 = consistent, the layout is a proper two colour map)')
+# fix the global flip: the disc around a shared corner (inside A of tile r0c0 BR... use quadrant TL of r0c0, inside A, outside B) must be a DISH = 1
+flip = 1 ^ parity((0, 0, 0), 1, 0) ^ C[(0, 0, 0)]
+out = [C[n] ^ flip for n in nodes]
+json.dump({'C': out, 'contradictions': contra}, open('ref-maps/01a_dish.json', 'w'))
+print('C table', out)

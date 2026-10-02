@@ -1,0 +1,47 @@
+# 30 September 2026 (evening): displacement sign negative and normal flipY 0 make each tile read dished inwards, as Matthieu asked; the maps themselves match the reference strips and are untouched.
+# 30 September 2026 : plug the five exported maps of the Copernicus graph (CeramicGreen_V5_*.png) on a plane in /obj with one Principled Shader, to see the
+# material directly. Every value is in P. Run it in the live session: runpy.run_path(<this file>). FR : branche les 5 maps sur un plan dans /obj.
+import hou
+D = '/Users/zenray/.claude/tmp/tmp-houdini-september-2026/tmp-materials-substance-copernicus-30-09-2026/render/'
+P = {
+    'prefix': 'CeramicGreen_V6', 'size': 4.0, 'divisions': 400,      # 4 x 4 tiles of 1 m
+    'disp_scale': -0.10, 'disp_offset': 0.30,                        # metres; the height map averages 0.317
+    'normal_flip_y': 0,                                                # my normal is DirectX (green inverted), Houdini reads OpenGL
+    'tint': (0.086, 0.099, 0.056),
+    'coat': 1.0, 'coat_rough': 0.02, 'spec_level': 0.5,
+}
+obj, mat = hou.node('/obj'), hou.node('/mat')
+for n in (obj.node('CeramicGreen_Plane'), mat.node('CeramicGreen_Material')):
+    if n: n.destroy()
+
+sh = mat.createNode('principledshader::2.0', 'CeramicGreen_Material')
+def tex(stem): return D + P['prefix'] + '_' + stem + '.png'
+sh.parm('basecolor_useTexture').set(1); sh.parm('basecolor_texture').set(tex('basecolor')); sh.parm('basecolor_textureColorSpace').set('srgb_texture') if 'srgb_texture' in sh.parm('basecolor_textureColorSpace').menuItems() else None
+sh.parm('rough_useTexture').set(1); sh.parm('rough_texture').set(tex('roughness'))
+sh.parm('occlusion_useTexture').set(1); sh.parm('occlusion_texture').set(tex('ao'))
+sh.parm('baseBumpAndNormal_enable').set(1); sh.parm('baseBumpAndNormal_type').set('normal')
+sh.parm('baseNormal_texture').set(tex('normal')); sh.parm('baseNormal_flipY').set(P['normal_flip_y'])
+sh.parm('dispTex_enable').set(1); sh.parm('dispTex_texture').set(tex('height')); sh.parm('dispTex_scale').set(P['disp_scale']); sh.parm('dispTex_offset').set(P['disp_offset'])
+sh.parm('baseNormal_scale').set(2.0)   # 30 September 2026 : stronger normal, the relief needs it to look vivid
+# 30 September 2026 : tint of the Principled base colour, tuned by measurement (Scripts/RenderStats.py) so that the render has the mean colour and saturation of 01a; the maps are untouched
+CTRL = '/obj/CeramicGreen_Height'   # HDA parameters live on the Copernicus network node
+for ch_, v_ in zip(('basecolorr', 'basecolorg', 'basecolorb'), P['tint']): sh.parm(ch_).setExpression('%f * ch("%s/glaze_tint")' % (v_, CTRL))
+sh.parm('dispTex_scale').setExpression('-ch("%s/relief_depth")' % CTRL)
+sh.parm('coat').setExpression('%f * ch(\"%s/reflection_gain\")' % (P['coat'], CTRL))
+# 30 September 2026 (feedback: lower the reflections by modifying the TEXTURE): the clear coat roughness now reads the roughness map (it was a fixed 0.02, so no texture could touch the glints)
+# the coat WEIGHT reads the reflection map (8 x 8 calibrated gains, 64 layers): it decides WHERE the glints may appear, as in 01a where they sit in a diagonal band
+# the BASE specular layer follows the same map (it made glints in the lower left where 01a has none, although the coat weight was 0 there)
+sh.parm('reflect_useTexture').set(1); sh.parm('reflect_texture').set(tex('reflect')); sh.parm('reflect_monoChannel').set(0)
+sh.parm('coat_useTexture').set(1); sh.parm('coat_texture').set(tex('reflect')); sh.parm('coat_monoChannel').set(0)
+sh.parm('coatrough_useTexture').set(1); sh.parm('coatrough_texture').set(tex('roughness')); sh.parm('coatrough').set(1.0)
+
+geo = obj.createNode('geo', 'CeramicGreen_Plane')
+grid = geo.createNode('grid', 'plane_4x4_tiles'); grid.parm('sizex').set(P['size']); grid.parm('sizey').set(P['size'])
+grid.parm('rows').set(P['divisions'] + 1); grid.parm('cols').set(P['divisions'] + 1)
+uv = geo.createNode('texture', 'uv_0_to_1'); uv.setInput(0, grid)
+uv.parm('sv').set(-1.0); uv.parm('offsetv').set(1.0)   # 30 September 2026 : the plane was rendered upside down against the maps (measured: render vs map overlap 0.55 with a vertical flip); flip v   # 30 September 2026 : UV Texture SOP is named 'texture'
+ma = geo.createNode('material', 'assign_ceramic_green'); ma.setInput(0, uv); ma.parm('shop_materialpath1').set(sh.path())
+ma.setDisplayFlag(True); ma.setRenderFlag(True)
+geo.layoutChildren(); mat.layoutChildren()
+geo.parm('tx').set(0)
+result = (geo.path(), sh.path())

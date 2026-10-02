@@ -1,0 +1,22 @@
+# 30 September 2026 : compare the chroma and lightness variation of my basecolor to ref_basecolor.png per scale (std of r-g, b-mid, lum after a Gaussian low-pass), glaze only.
+# FR : compare la variation de teinte et de luminosite par echelle.
+import numpy as np, json
+from PIL import Image
+from scipy import ndimage as ndi
+F = json.load(open('ref-maps/basecolor_fit.json'))
+def masks(H, W, T, ox, oy, sc):
+    yy, xx = np.mgrid[0:H, 0:W].astype(np.float32); tx = (xx - ox) / T; ty = (yy - oy) / T
+    ci = np.floor(tx).astype(int); ri = np.floor(ty).astype(int); u = tx - ci; v = ty - ri
+    skip = np.where((ri + ci) % 2 == F['parity'], 0, 1); dc = np.full(u.shape, 9.0, np.float32)
+    for cu in (0, 1):
+        for cv in (0, 1):
+            d = np.hypot(u - cu, v - cv) - F['R']; dc = np.where((np.abs(d) < np.abs(dc)) & ~((skip == cu) & (cu == cv)), d, dc)
+    dn = np.where(ri % 2 == 1, np.hypot(u - .5, v - .5) - F['R'], 9.0); e = np.minimum(np.minimum(u, 1 - u), np.minimum(v, 1 - v)); px = 1 / 407.0
+    return (e > 30 * px) & (np.minimum(np.abs(dc), np.abs(dn)) > 60 * px)
+def stats(img, gl, sc):
+    ch = {'r-g': img[..., 0] - img[..., 1], 'b-mid': img[..., 2] - (img[..., 0] + img[..., 1]) / 2, 'lum': img.mean(2)}
+    return {k: [float(ndi.gaussian_filter(v, s * sc)[gl].std()) for s in (40, 15, 6, 2)] for k, v in ch.items()}
+ref = np.asarray(Image.open('ref-maps/ref_basecolor.png').convert('RGB')).astype(np.float32) / 255
+mine = np.asarray(Image.open('render/CeramicGreen_V6_basecolor.png').convert('RGB')).astype(np.float32) / 255
+r = stats(ref, masks(*ref.shape[:2], F['T'], F['ox'], F['oy'], 1), 1.0); m = stats(mine, masks(1920, 1920, 480.0, 0, 0, 1), 480 / 407.0)
+for k in r: print('%-6s std at sigma 40/15/6/2 px   ref %s   mine %s   ratio %s' % (k, np.round(r[k], 4), np.round(m[k], 4), np.round(np.array(m[k]) / np.array(r[k]), 2)))

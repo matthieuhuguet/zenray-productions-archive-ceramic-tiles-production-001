@@ -1,0 +1,83 @@
+# 30 September 2026 : which regions of the arc layout are DISHES (hollow) and which are the flat PLATEAU. The arcs are the boundaries between the two kinds of region, so the region adjacency graph of the
+# rasterised layout (ref-maps/01a_truchet.json) is 2-colourable; the colouring is solved by a breadth first search, the dish colour being the one of the region that contains the centre of tile r0 c0's TL quadrant
+# corner circle interior (a disc around a shared corner is a dish in 01a: the concave bowls with the glints). Result: a table with one bit per (tile, quadrant, sub-region) where the sub-region index is
+# (inside A ? 1 : 0) + 2 * (inside B ? 1 : 0) for the circles that are drawn in that quadrant; written to ref-maps/01a_dish.json and checked against a render of the coloured regions. FR : quelles regions sont des cuvettes.
+import json, numpy as np
+from PIL import Image
+from scipy import ndimage as ndi
+T = json.load(open('ref-maps/01a_truchet.json'))
+S = 480; R = 240.0; W = 4 * S
+yy, xx = np.mgrid[0:W, 0:W].astype(np.float32)
+u = (xx / S) % 1.0; v = (yy / S) % 1.0; tc = (xx // S).astype(int); tr = (yy // S).astype(int)
+q = (u > 0.5).astype(int) + 2 * (v > 0.5).astype(int)
+codes = np.zeros((4, 4, 4), int)
+for r in range(4):
+    for c in range(4):
+        for k, name in enumerate(('TL', 'TR', 'BL', 'BR')):
+            s = T[f'r{r}c{c}'][name]; codes[r, c, k] = (1 if 'A' in s else 0) + (2 if 'B' in s else 0)
+code = codes[tr, tc, q]
+cu = np.where((q == 1) | (q == 3), 1.0, 0.0); cv = np.where(q >= 2, 1.0, 0.0)
+dA = np.where((code & 1) > 0, np.hypot(u - cu, v - cv) - R / S, 9.0)
+dB = np.where((code & 2) > 0, np.hypot(u - 0.5, v - 0.5) - R / S, 9.0)
+arc = (np.abs(dA) < 3.0 / S) | (np.abs(dB) < 3.0 / S)
+sub = ((dA < 0) & ((code & 1) > 0)).astype(int) + 2 * ((dB < 0) & ((code & 2) > 0)).astype(int)
+# region ids: a region is a connected set of (tile, quadrant, sub) cells not crossing an arc; tile edges and quadrant midlines do NOT separate regions
+lab, n = ndi.label(~arc)
+print('regions', n)
+# adjacency through the arc pixels: dilate each label by 4 px and look at which labels meet around an arc pixel
+from collections import Counter
+# exact normals: for each arc pixel take the circle it belongs to (A centred on the corner of its quadrant, B centred on the tile centre) and step +/- 5 px along the radius
+cxA = (tc + cu) * S; cyA = (tr + cv) * S; cxB = (tc + 0.5) * S; cyB = (tr + 0.5) * S
+useA = np.abs(dA) <= np.abs(dB)
+cxn = np.where(useA, cxA, cxB); cyn = np.where(useA, cyA, cyB)
+ax, ay = np.nonzero(arc)
+px_, py_ = ax.astype(np.float32), ay.astype(np.float32)        # note: nonzero returns (row, col) = (y, x)
+yy_a, xx_a = px_, py_
+nx = xx_a - cxn[ax, ay]; ny = yy_a - cyn[ax, ay]; nl = np.hypot(nx, ny) + 1e-6; nx /= nl; ny /= nl
+cnt = Counter()
+for step in (5, 6, 7):
+    x1 = np.clip(np.round(xx_a + step * nx).astype(int), 0, W - 1); y1 = np.clip(np.round(yy_a + step * ny).astype(int), 0, W - 1)
+    x0 = np.clip(np.round(xx_a - step * nx).astype(int), 0, W - 1); y0 = np.clip(np.round(yy_a - step * ny).astype(int), 0, W - 1)
+    a_ = lab[y0, x0]; b_ = lab[y1, x1]; ok = (a_ > 0) & (b_ > 0) & (a_ != b_)
+    for p_, q_ in zip(a_[ok].tolist(), b_[ok].tolist()): cnt[(min(p_, q_), max(p_, q_))] += 1
+adj = {k for k, v in cnt.items() if v >= 90}                      # a real shared arc segment, not a one point junction
+print('adjacent pairs', len(adj), 'of', len(cnt), 'contacts')
+graph = {i: set() for i in range(1, n + 1)}
+for p, qq in adj: graph[p].add(qq); graph[qq].add(p)
+color = {}; conflicts = 0
+for start in graph:
+    if start in color or not graph[start]: continue
+    color[start] = 0; queue = [start]
+    while queue:
+        cur = queue.pop(0)
+        for nb in graph[cur]:
+            if nb not in color: color[nb] = 1 - color[cur]; queue.append(nb)
+            elif color[nb] == color[cur]: conflicts += 1
+print('colour conflicts', conflicts, ' (0 = the layout is a proper two colour map)')
+# the dish colour: the region holding the disc around the shared corner at the lattice point (1, 1)*S (inside the A circle of the BR quadrant of tile r0 c0)
+probe = lab[int(S - 40), int(S - 40)]
+dish_color = color.get(probe, 0)
+bits = np.zeros((4, 4, 4, 4), int)
+for r in range(4):
+    for c in range(4):
+        for k in range(4):
+            for sb in range(4):
+                m = (tr == r) & (tc == c) & (q == k) & (sub == sb) & ~arc
+                if m.sum() < 30: bits[r, c, k, sb] = -1; continue
+                ids, cnt = np.unique(lab[m], return_counts=True); rid = ids[cnt.argmax()]
+                bits[r, c, k, sb] = 1 if color.get(int(rid), 0) == dish_color else 0
+# unused combinations (sub-regions that do not exist in a quadrant) take the value of the nearest existing one: outside of everything
+flat = bits.reshape(-1).tolist()
+flat = [0 if x < 0 else x for x in flat]
+json.dump({'dish_bits': flat, 'conflicts': conflicts, 'regions': int(n), 'dish_fraction': float(np.mean([x for x in flat]))}, open('ref-maps/01a_dish.json', 'w'))
+pal = np.zeros((W, W, 3), np.uint8)
+dishmap = np.zeros((W, W), bool)
+for r in range(4):
+    for c in range(4):
+        for k in range(4):
+            for sb in range(4):
+                m = (tr == r) & (tc == c) & (q == k) & (sub == sb)
+                if bits[r, c, k, sb] == 1: dishmap |= m
+pal[dishmap] = [40, 110, 200]; pal[~dishmap] = [200, 170, 60]; pal[arc] = [255, 255, 255]
+Image.fromarray(pal).resize((900, 900), Image.NEAREST).save('ref-maps/01a_dish_overlay.png')
+print('dish fraction of the area', round(float(dishmap.mean()), 3))

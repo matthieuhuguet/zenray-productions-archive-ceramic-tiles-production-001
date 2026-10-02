@@ -1,0 +1,24 @@
+# 30 September 2026 : compare one of my maps (1920 x 1920, 4 x 4 tiles) to a reference strip of sheet 08, window aligned.
+# The five reference strips are windows of the same texture panned by a DIFFERENT amount each (their vertical joint sits at a
+# different x), so the window start is searched, then reported. Usage: python3 CompareToRefMap.py <mine.png> <ref.png> [gray|rgb]
+# FR : compare une de mes cartes a une bande de reference de la planche 08, fenetre recherchee (chaque bande est decalee).
+import sys, numpy as np
+from PIL import Image
+mine_p, ref_p = sys.argv[1], sys.argv[2]; mode = sys.argv[3] if len(sys.argv) > 3 else 'gray'
+conv = 'L' if mode == 'gray' else 'RGB'
+mine = Image.open(mine_p).convert(conv)
+ref = np.asarray(Image.open(ref_p).convert(conv)).astype(np.float32) / 255
+H, W = ref.shape[:2]
+scale = 408.25 / 480.0                   # my tile is 480 px, the reference tile is 408.25 px
+win_w = int(round(W / scale))             # reference window width, in my pixels
+best = None
+for x0 in range(480, 1920 - win_w, 2):    # tile columns 1..3 only
+    w = mine.crop((x0, 0, x0 + win_w, 1920)).resize((W, H), Image.LANCZOS)
+    a = np.asarray(w).astype(np.float32) / 255
+    c = np.corrcoef(a.ravel(), ref.ravel())[0, 1]
+    if best is None or c > best[0]: best = (c, x0)
+c, x0 = best
+w = np.asarray(mine.crop((x0, 0, x0 + win_w, 1920)).resize((W, H), Image.LANCZOS)).astype(np.float32) / 255
+print(f'best window start {x0} px (tile column offset {(x0 % 480)} px of 480)  correlation {c:.3f}  mean abs diff {np.abs(w - ref).mean():.4f}  mean mine {w.mean():.3f} ref {ref.mean():.3f}')
+out = (np.concatenate([ref, np.ones((H, 10) + ref.shape[2:], np.float32) * 0.15, w], axis=1) * 255).astype(np.uint8)
+import os; os.makedirs(os.path.join(os.path.dirname(mine_p), 'compare'), exist_ok=True); Image.fromarray(out).save(os.path.join(os.path.dirname(mine_p), 'compare', os.path.basename(mine_p).replace('.png', '_vs_ref.png')))

@@ -1,0 +1,13 @@
+# 30 September 2026 : one calibration step of the reflection (coat weight) map: multiplies the 8 x 8 gains of ref-maps/reflect_calib.json by the damped ratio of the glint density of 01a over mine, measured by
+# Scripts/MeasureHighlights.py in measures/H<N>_<label>/. The history of every step is appended. Usage: python3 CalibrateReflectMap.py H<N>_<label>      FR : une etape d'etalonnage de la carte de reflets 8 x 8.
+import sys, json, numpy as np, pathlib
+D = pathlib.Path(__file__).resolve().parent.parent; m = D / 'measures' / sys.argv[1]
+cal = json.load(open(D / 'ref-maps/reflect_calib.json')); g = np.array(cal['g'])
+from scipy import ndimage as ndi
+ref = ndi.gaussian_filter(np.load(m / 'bright_density_ref_8x8.npy'), 0.8, mode='nearest'); mine = ndi.gaussian_filter(np.load(m / 'bright_density_mine_8x8.npy'), 0.8, mode='nearest')   # smoothed: single cells are noisy
+ratio = np.clip((ref + 0.0003) / (mine + 0.0003), 0.05, 4.0)
+# 30 September 2026 : the floor was 0.02, but a 0.02 coat weight of a very bright key light still makes pure white glints (frame 052, lower left): the floor is now 0.002 (the 8 bit map can hold 1/255 = 0.004) and the step is not damped
+g2 = np.clip(g * ratio ** 0.9, 0.0, 1.0)
+cal['g'] = g2.round(4).tolist(); cal['history'].append({'from': sys.argv[1], 'mean_abs_log_ratio': float(np.abs(np.log(ratio)).mean()), 'glint_frac_ref': float(ref.mean()), 'glint_frac_mine': float(mine.mean())})
+json.dump(cal, open(D / 'ref-maps/reflect_calib.json', 'w'), indent=1)
+print('mean |log ratio| of the 64 cells: %.3f   glint fraction ref %.4f mine %.4f' % (np.abs(np.log(ratio)).mean(), ref.mean(), mine.mean()))

@@ -1,0 +1,41 @@
+# 30 September 2026 : V11 = V10 + the GLAZE HUE. A real HDA parameter (glaze_hue, degrees) that changes the colour of the glaze with the SAME luminance: the hue is rotated in the chroma plane (Cb, Cr) and the luma Y
+# (Rec. 709 weights) is kept EXACTLY, so the brightness, the saturation and the soft gradient of the glaze do not change, only the colour does. The rotation is weighted by a glaze mask (full away from the arcs
+# and the joints, zero on the tan lines and their first pixels) so that the clay lines stay tan when the glaze becomes blue. FR : V11 = V10 + vrai parametre de teinte du verre, luminance conservee.
+import hou, runpy
+B = '/Users/zenray/.claude/tmp/tmp-houdini-september-2026/tmp-materials-substance-copernicus-30-09-2026/'
+G10 = runpy.run_path(B + 'Scripts/BuildCeramicGreenReflectMapV10.py')
+net, G, UV = G10['net'], G10['G'], G10['UV']
+node, vex = G['node'], G['vex']
+CH = G['CH']
+alb = net.node('ZF_BASECOLOR__ceramic_green_v8')
+code = G['LAYOUT_VEX'] + UV + '''// glaze mask: 0 on the lines and their first pixels (clay stays tan), 1 away from every arc and joint (distances in tile units, one 1080 px = 1/270 tile, one map px = 1/480 tile)
+float dA; float dB; float dsh;
+lay(LT01A, LC01A, tc, tr, u, v, %s, int(%s + 0.5), dA, dB, dsh);
+float dd = min(abs(dA), abs(dB));
+float e = min(min(u, 1.0 - u), min(v, 1.0 - v));
+float w = sm(12.0 / 480.0, 34.0 / 480.0, dd) * sm(3.0 / 480.0, 10.0 / 480.0, e);
+// luminance preserving hue rotation: Y is kept, (Cb, Cr) = (B - Y, R - Y) is rotated by the angle
+vector c = set(p@C.x, p@C.y, p@C.z);
+float Y = dot(c, set(0.2126, 0.7152, 0.0722));
+float cb = c.z - Y; float cr = c.x - Y;
+float a = radians(%s);
+float cb2 = cb * cos(a) - cr * sin(a); float cr2 = cb * sin(a) + cr * cos(a);
+float R2 = Y + cr2; float B2 = Y + cb2; float G2 = (Y - 0.2126 * R2 - 0.0722 * B2) / 0.7152;
+vector rot = set(R2, G2, B2);
+// gamut: pull the chroma towards the grey of the same luma until every channel is inside 0..1 (Y is unchanged because the chroma has zero luma by construction)
+float mn = min(rot.x, min(rot.y, rot.z)); float mx = max(rot.x, max(rot.y, rot.z));
+float t = 1.0;
+if (mn < 0.0) t = min(t, Y / max(Y - mn, 1e-6));
+if (mx > 1.0) t = min(t, (1.0 - Y) / max(mx - Y, 1e-6));
+rot = set(Y, Y, Y) + t * (rot - set(Y, Y, Y));
+vector o = lerp(c, rot, w);
+p@C = set(o.x, o.y, o.z, p@C.w);
+''' % (CH('ring_radius'), CH('layout_source'), CH('glaze_hue'))
+hue = vex(net, 'ZG_albedo__glaze_hue_rotation_luma_preserved', [alb], code)
+out = node(net, 'null', 'ZH_BASECOLOR__ceramic_green_hue', [hue])
+net.node('FINAL_3_BASECOLOR').setInput(0, out); net.node('U4_export__basecolor_v6').setInput(0, out)
+box = net.createNetworkBox(); box.setComment('AD  GLAZE HUE: luminance preserving rotation of the glaze colour (HDA parameter glaze_hue)'); box.setColor(hou.Color((0.85, 0.55, 0.85)))
+x0 = max(n.position().x() for n in net.children() if n.name() not in (hue.name(), out.name())) + 6
+for i, n in enumerate((hue, out)): n.setPosition(hou.Vector2(x0, -i * 1.1)); n.setColor(hou.Color((0.85, 0.55, 0.85))); box.addItem(n)
+box.fitAroundContents()
+result = (len(net.children()), 2)

@@ -1,0 +1,57 @@
+# 30 September 2026 : put the ceramic green plane in Solaris (/stage): sopimport of /obj/CeramicGreen_Plane, a Material Library with one MaterialX standard surface fed by the five
+# exported maps, assign, top camera, dome + key light, Karma render properties and a USD Render ROP. Run in the live session (runpy). Every value is in P.
+# FR : met le plan dans Solaris (/stage) avec un materiau MaterialX branche sur les 5 maps, camera du dessus, lumieres, Karma.
+import hou
+D = '/Users/zenray/.claude/tmp/tmp-houdini-september-2026/tmp-materials-substance-copernicus-30-09-2026/render/'
+P = {'prefix': 'CeramicGreen_V6', 'sop': '/obj/CeramicGreen_Plane/assign_ceramic_green', 'prim': '/CeramicGreen_Plane', 'mat': 'CeramicGreen_Material',
+     'disp_scale': 0.03, 'disp_offset': -0.30, 'coat': 0.6, 'coat_rough': 0.03, 'spec': 0.5, 'res': 1080,
+     'cam_height': 5.2, 'focal': 35.0, 'aperture': 24.0, 'dome_intensity': 0.35, 'key_intensity': 2.2}
+st = hou.node('/stage')
+for n in list(st.children()):
+    if n.name().startswith('cg_'): n.destroy()
+def tex(stem): return D + P['prefix'] + '_' + stem + '.png'
+
+sopi = st.createNode('sopimport', 'cg_plane'); sopi.parm('soppath').set(P['sop']); sopi.parm('primpath').set(P['prim']) if sopi.parm('primpath') else None
+# 30 September 2026 : the Principled Shader built in /mat by BuildCeramicGreenPlane.py is imported by the Material Library (matnet /mat). A plain subnet or a
+# materialbuilder would not accept the mtlx nodes from Python, and a subnet was not seen as a material. FR : on importe le Principled Shader de /mat.
+ml = st.createNode('materiallibrary', 'cg_materials'); ml.setInput(0, sopi)
+ml.parm('matnet').set('/mat'); ml.parm('matpathprefix').set('/materials/')
+ml.parm('fillmaterials').pressButton()           # lists every shader of /mat with its USD path (/materials/<name>)
+asg = st.createNode('assignmaterial', 'cg_assign'); asg.setInput(0, ml)
+asg.parm('nummaterials').set(1); asg.parm('primpattern1').set('/cg_plane/*'); asg.parm('matspecpath1').set('/materials/' + P['mat'])
+
+cam = st.createNode('camera', 'cg_camera'); cam.setInput(0, asg)
+for k, v in {'tx': 0, 'ty': P['cam_height'], 'tz': 0, 'rx': -90}.items(): cam.parm(k).set(v)
+cam.parm('focalLength').set(P['focal']) if cam.parm('focalLength') else None
+cam.parm('horizontalAperture').set(P['aperture']) if cam.parm('horizontalAperture') else None
+dome = st.createNode('domelight', 'cg_dome'); dome.setInput(0, cam); dome.parm('xn__inputsintensity_i0a').set(P['dome_intensity']) if dome.parm('xn__inputsintensity_i0a') else None
+key = st.createNode('distantlight', 'cg_key'); key.setInput(0, dome)
+key.parm('xn__inputsintensity_i0a').set(P['key_intensity']) if key.parm('xn__inputsintensity_i0a') else None
+key.parm('rx').set(-38); key.parm('ry').set(-50)   # 30 September 2026 : low grazing key light, shadows and sharp highlights make the relief read
+kp = st.createNode('karmarenderproperties', 'cg_karma'); kp.setInput(0, key)
+kp.parm('camera').set('/cameras/cg_camera') if kp.parm('camera') else None
+rop = st.createNode('usdrender_rop', 'cg_render'); rop.setInput(0, kp)
+rop.parm('outputimage').set(D + 'frames/' + P['prefix'] + '_karma.png') if rop.parm('outputimage') else None
+rop.setDisplayFlag(True) if hasattr(rop, 'setDisplayFlag') else None
+kp.setDisplayFlag(True)
+st.layoutChildren()
+# 30 September 2026 : lights and render settings that gave a readable Karma image (resolutiony is locked to the aspect, so the resolution is overridden on the ROP).
+fill = st.createNode('distantlight', 'cg_fill'); fill.setInput(0, key); fill.parm('rx').set(-50); fill.parm('ry').set(130)
+kp.setInput(0, fill)
+# 30 September 2026 : DIFFUSE and SPECULAR are separated. The key light carries the relief shading only (specular 0); cg_spec is a soft distant light (10 degrees) with no diffuse, whose direction (rx -41, ry 0) was fitted offline so that the half vector meets
+# the normal map where 01a shows its reflections (Scripts/FitSpecLight.py). FR : lumiere diffuse (key) et lumiere speculaire douce (spec) separees, direction ajustee hors rendu.
+spec = st.createNode('distantlight', 'cg_spec'); spec.setInput(0, key); fill.setInput(0, spec)
+spec.parm('primpath').set('/lights/cg_spec'); spec.parm('rx').set(-41); spec.parm('ry').set(0); spec.parm('rz').set(0)
+spec.parm('xn__inputsdiffuse_8wa').set(0.0); spec.parm('xn__inputsspecular_vya').set(1.0); spec.parm('xn__inputsangle_zta').set(10.0)
+spec.parm('xn__inputsexposure_control_wcb').set('set'); spec.parm('xn__inputsexposure_vya').setExpression('ch("/obj/CeramicGreen_Height/spec_exposure")')
+key.parm('xn__inputsspecular_vya').set(0.0)
+for lt, inten, expo in ((dome, 1.0, -2.9), (key, 3.0, 3.5), (fill, 1.0, 0.0)):   # 30 September 2026 : deeper shadows and brighter key, measured against 01a   # 30 September 2026 : darker dome, strong key, weak fill = vivid render
+    lt.parm('xn__inputsintensity_control_jeb').set('set'); lt.parm('xn__inputsexposure_control_wcb').set('set')
+    lt.parm('xn__inputsintensity_i0a').set(inten); lt.parm('xn__inputsexposure_vya').set(expo)
+for lt_, nm_ in ((key, 'key_exposure'), (dome, 'dome_exposure'), (fill, 'fill_exposure')): lt_.parm('xn__inputsexposure_vya').setExpression('ch("/obj/CeramicGreen_Height/%s")' % nm_)   # HDA parameters
+kp.parm('samplesperpixel').set(64); kp.parm('varianceaa_maxsamples').set(64)   # 30 September 2026 : pathtracedsamples is ignored by Karma CPU, samplesperpixel is the real control (it was left at 9 for every earlier frame, which inflated the measured grain); kp.parm('camera').set('/cameras/cg_camera')
+rop.parm('loppath').set(kp.path()); rop.parm('renderer').set('BRAY_HdKarma'); rop.parm('override_res').set('specific')
+rop.parm('res_user1').set(P['res']); rop.parm('res_user2').set(P['res']); rop.parm('soho_foreground').set(1)
+rop.parm('outputimage').set(D + 'frames/' + P['prefix'] + '_karma.png')
+# render: hou.hscript('render -V 1 /stage/cg_render')
+result = [c.name() for c in st.children()]

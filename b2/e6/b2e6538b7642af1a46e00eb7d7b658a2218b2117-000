@@ -1,0 +1,43 @@
+# 30 September 2026 : with the exact geometry of ref_basecolor.png (ref-maps/basecolor_geometry.json) compute the true arc distance dd and edge distance e for every
+# reference pixel, then measure the colour profile across an arc and across a joint, on both sides of the arc (dish side vs high side), plus glaze statistics.
+# FR : profils de couleur en travers d'un arc et d'un joint, geometrie exacte de la ref.
+import numpy as np, json
+from PIL import Image
+from scipy import ndimage as ndi
+G = json.load(open('ref-maps/basecolor_geometry.json'))
+ref = np.asarray(Image.open('ref-maps/ref_basecolor.png').convert('RGB')).astype(np.float32) / 255
+H, W = ref.shape[:2]; T = G['T']
+yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
+tx = (xx - G['ox']) / T; ty = (yy - G['oy']) / T
+ci = np.floor(tx).astype(int); ri = np.floor(ty).astype(int); u = tx - ci; v = ty - ri
+skip = np.where((ri + ci) % 2 == G['parity'], 0, 1)
+dd = np.full(u.shape, 9.0, np.float32); sd = np.zeros(u.shape, np.float32)
+for cu in (0, 1):
+    for cv in (0, 1):
+        r = np.hypot(u - cu, v - cv); d = np.abs(r - G['R'])
+        d = np.where((skip == cu) & (cu == cv), 9.0, d)
+        better = d < dd; sd = np.where(better, np.sign(r - G['R']), sd); dd = np.minimum(dd, d)     # sd > 0: outside the circle, < 0: inside
+e = np.minimum(np.minimum(u, 1 - u), np.minimum(v, 1 - v))
+px = 1 / T
+np.save('ref-maps/ref_dd.npy', dd); np.save('ref-maps/ref_e.npy', e); np.save('ref-maps/ref_sd.npy', sd)
+def prof(field, edges, mask):
+    rows = []
+    for lo, hi in zip(edges[:-1], edges[1:]):
+        s = (field >= lo) & (field < hi) & mask
+        rows.append((lo / px, hi / px, int(s.sum()), *(ref[s].mean(0) if s.sum() > 30 else (np.nan,) * 3)))
+    return rows
+edges = np.array([0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 5, 6, 7, 8, 10, 12, 15, 18, 22, 28, 36, 48, 64, 90, 200]) * px
+res = {'inside': prof(dd, edges, (sd < 0) & (e > 12 * px)), 'outside': prof(dd, edges, (sd > 0) & (e > 12 * px)), 'joint': prof(e, edges, dd > 12 * px)}
+for k, rows in res.items():
+    print(k)
+    for a, b, n, r, g, bl in rows: print('  %5.1f-%5.1f px  n=%6d  %.3f %.3f %.3f' % (a, b, n, r, g, bl))
+glaze = (e > 30 * px) & (dd > 60 * px)
+lum = ref.mean(2)
+out = {'glaze_mean': ref[glaze].mean(0).tolist(), 'glaze_std': ref[glaze].std(0).tolist()}
+for name, sg in (('sigma40', 40), ('sigma15', 15), ('sigma6', 6), ('sigma2', 2)):
+    out['lowpass_std_' + name] = float(ndi.gaussian_filter(lum, sg)[glaze].std())
+out['grain_std'] = float((lum - ndi.gaussian_filter(lum, 1.5))[glaze].std())
+out['speck_frac'] = float(((lum - ndi.gaussian_filter(lum, 3)) > 0.10)[glaze].mean())
+out['profiles'] = {k: [[float(x) for x in r] for r in rows] for k, rows in res.items()}
+json.dump(out, open('ref-maps/basecolor_aligned_profiles.json', 'w'), indent=1)
+print({k: (round(v, 4) if isinstance(v, float) else v) for k, v in out.items() if k != 'profiles'})

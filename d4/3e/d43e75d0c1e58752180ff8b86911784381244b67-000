@@ -1,0 +1,99 @@
+# 30 September 2026 : one command that MEASURES the basecolor against ref_basecolor.png and stores everything in a numbered folder, so that nothing is lost and regressions show:
+#   measures/M<N>_<label>/  geometry_overlay_ref.png   green = tan line pixels of the reference explained by the circle model, magenta = NOT explained (missing arcs)
+#                           geometry_overlay_mine.png  the same test on my basecolor
+#                           basecolor_aligned_ref_vs_mine.png   reference left, mine resampled on the same pixels right, difference below
+#                           profiles_corner_centre_joint.png    colour profiles across the arcs, the small circles and the joints, reference thick, mine thin
+#                           report.md                  numbers with PASS/FAIL against thresholds
+#   measures/HISTORY.md     one dated line per run (append only) so that a regression is visible at a glance.
+# Usage: python3 RunChecks.py <label> [render.png]      (render.png: a Karma frame to compare with 01a, copied into the folder)
+# FR : une commande qui mesure la basecolor contre la ref et range tout dans un dossier numerote ; HISTORY.md montre les regressions.
+import sys, re, json, shutil, datetime, pathlib, numpy as np
+from PIL import Image, ImageDraw
+from scipy import ndimage as ndi
+D = pathlib.Path(__file__).resolve().parent.parent; M = D / 'measures'; M.mkdir(exist_ok=True)
+label = sys.argv[1] if len(sys.argv) > 1 else 'run'; render = sys.argv[2] if len(sys.argv) > 2 else None
+n = max([int(m.group(1)) for f in M.glob('M*') if (m := re.match(r'M(\d+)', f.name))] + [0]) + 1
+out = M / f'M{n:03d}_{label}'; out.mkdir()
+F = json.load(open(D / 'ref-maps/basecolor_fit.json')); PR = json.load(open(D / 'ref-maps/basecolor_aligned_profiles.json'))
+ref = np.asarray(Image.open(D / 'ref-maps/ref_basecolor.png').convert('RGB')).astype(np.float32) / 255
+mine = np.asarray(Image.open(D / 'render/CeramicGreen_V6_basecolor.png').convert('RGB')).astype(np.float32) / 255
+Hr, Wr = ref.shape[:2]; T = F['T']; px = 1 / T
+def fields(H, W, T_, ox, oy):
+    yy, xx = np.mgrid[0:H, 0:W].astype(np.float32); tx = (xx - ox) / T_; ty = (yy - oy) / T_
+    ci = np.floor(tx).astype(int); ri = np.floor(ty).astype(int); u = tx - ci; v = ty - ri
+    skip = np.where((ri + ci) % 2 == F['parity'], 0, 1); dc = np.full(u.shape, 9.0, np.float32)
+    for cu in (0, 1):
+        for cv in (0, 1):
+            d = np.hypot(u - cu, v - cv) - F['R']; dc = np.where((np.abs(d) < np.abs(dc)) & ~((skip == cu) & (cu == cv)), d, dc)
+    dn = np.where(ri % 2 == 1, np.hypot(u - .5, v - .5) - F['R'], 9.0); e = np.minimum(np.minimum(u, 1 - u), np.minimum(v, 1 - v))
+    return dc, dn, e
+def tanmask(img): return ndi.gaussian_filter((img[..., 0] - img[..., 2] - 0.14).clip(0, 1), 1.0) > 0.06
+def overlay(img, sc, name):
+    dc, dn, e = fields(*img.shape[:2], T * sc, F['ox'] * sc if img is ref else 0, F['oy'] * sc if img is ref else 0)
+    model = np.minimum(np.minimum(np.abs(dc), np.abs(dn)), e) < 8 * px; tan = tanmask(img)
+    vis = (img * 255).astype(np.uint8).copy(); vis[model & tan] = [0, 255, 0]; vis[tan & ~model] = [255, 0, 255]
+    Image.fromarray(vis[:min(vis.shape[0], 1700)]).save(out / name)
+    return float((tan & ~model).sum() / max(tan.sum(), 1)), float((model & ~tan).sum() / max(model.sum(), 1))
+miss_ref, _ = overlay(ref, 1.0, 'geometry_overlay_ref.png')
+# my map resampled on the reference pixels: ref pixel (x, y) -> tile coords ((x - ox) / T, (y - oy) / T) -> my pixel (480 * (2 + tx), 480 * ty); tile col 2 row 0 has the reference parity
+yy, xx = np.mgrid[0:Hr, 0:Wr].astype(np.float32); mx = 480 * (2 + (xx - F['ox']) / T); my = 480 * ((yy - F['oy']) / T)
+res = np.stack([ndi.map_coordinates(mine[..., c], [my, mx], order=1, mode='nearest') for c in range(3)], -1)
+diff = np.abs(res - ref).mean(2)
+strip = np.concatenate([ref, np.ones((Hr, 8, 3), np.float32) * .15, res, np.ones((Hr, 8, 3), np.float32) * .15, np.repeat((diff * 4).clip(0, 1)[..., None], 3, 2)], 1)
+Image.fromarray((strip * 255).astype(np.uint8)).save(out / 'basecolor_aligned_ref_vs_mine.png')
+tan_mine = tanmask(res); model_ref = np.minimum(np.minimum(np.abs(fields(Hr, Wr, T, F['ox'], F['oy'])[0]), np.abs(fields(Hr, Wr, T, F['ox'], F['oy'])[1])), fields(Hr, Wr, T, F['ox'], F['oy'])[2]) < 8 * px
+vis = (res * 255).astype(np.uint8).copy(); vis[model_ref & tan_mine] = [0, 255, 0]; vis[tan_mine & ~model_ref] = [255, 0, 255]
+Image.fromarray(vis[:1700]).save(out / 'geometry_overlay_mine.png'); miss_mine = float((tan_mine & ~model_ref).sum() / tan_mine.sum())
+# profiles measured on the resampled map with the reference model (same pixels, same bins)
+dc, dn, e = fields(Hr, Wr, T, F['ox'], F['oy']); far = 14 * px
+def prof(field, mask, rows, img):
+    o = []
+    for lo, hi, nn, r, g, b in rows:
+        s = (field >= lo * px) & (field < hi * px) & mask; o.append(img[s].mean(0) if s.sum() > 25 else np.full(3, np.nan))
+    return np.array(o)
+fam = {'corner': (dc, (np.abs(dn) > far) & (e > far)), 'centre': (dn, (np.abs(dc) > far) & (e > far) & (dn < 9)), 'joint': (e, (np.abs(dc) > far) & (np.abs(dn) > far))}
+canvas = Image.new('RGB', (3 * 420, 260), (24, 24, 24)); dr = ImageDraw.Draw(canvas); errs = {}
+for i, (k, (fld, msk)) in enumerate(fam.items()):
+    rows = F[k]; rp = np.array([[np.nan] * 3 if r[3] is None else r[3:6] for r in rows]); mp = prof(fld, msk, rows, res)
+    x = np.array([(r[0] + r[1]) / 2 for r in rows]); errs[k] = (float(np.nanmean(np.abs(mp - rp))), float(np.nanmax(np.abs(mp - rp))))
+    xs = np.arange(len(x)); ox0 = i * 420 + 20
+    for c, col in enumerate(((255, 90, 90), (90, 255, 90), (90, 160, 255))):
+        for arr, w in ((rp[:, c], 3), (mp[:, c], 1)):
+            pts = [(ox0 + 380 * j / max(len(x) - 1, 1), 240 - 220 * (v - 0.2) / 0.5) for j, v in enumerate(arr) if not np.isnan(v)]
+            if len(pts) > 1: dr.line(pts, fill=col, width=w)
+    dr.text((ox0, 4), f'{k}: mean err {errs[k][0]:.3f} (thick = reference, thin = mine)', fill=(230, 230, 230))
+canvas.save(out / 'profiles_corner_centre_joint.png')
+# glaze statistics, per scale, luminance and chroma
+gl_ref = (e > 30 * px) & (np.minimum(np.abs(dc), np.abs(dn)) > 60 * px)
+dcm, dnm, em = fields(1920, 1920, 480.0, 0, 0); gl_m = (em > 30 * px) & (np.minimum(np.abs(dcm), np.abs(dnm)) > 60 * px)
+def stats(img, gl, sc):
+    ch = {'r-g': img[..., 0] - img[..., 1], 'b-mid': img[..., 2] - (img[..., 0] + img[..., 1]) / 2, 'lum': img.mean(2)}
+    return {k: [float(ndi.gaussian_filter(v, s * sc)[gl].std()) for s in (40, 15, 6, 2)] for k, v in ch.items()}
+sr = stats(ref, gl_ref, 1.0); sm = stats(mine, gl_m, 480 / 407.0)
+gmean_m = mine[gl_m].mean(0); gmean_r = ref[gl_ref].mean(0)
+lumr = ref.mean(2); lumm = mine.mean(2)
+speck_r = float(((lumr - ndi.gaussian_filter(lumr, 3)) > 0.10)[gl_ref].mean()); speck_m = float(((lumm - ndi.gaussian_filter(lumm, 3 * 480 / 407.0)) > 0.10)[gl_m].mean())
+checks = [('miss ref (tan pixels of the reference NOT explained by the circle model)', miss_ref, '< 0.20', miss_ref < 0.20),
+          ('miss mine (tan pixels of my map NOT explained by the model)', miss_mine, '< 0.05', miss_mine < 0.05),
+          ('glaze mean error', float(np.abs(gmean_m - gmean_r).max()), '< 0.012', float(np.abs(gmean_m - gmean_r).max()) < 0.012),
+          ('mean abs difference on the aligned strip', float(diff.mean()), '< 0.06', float(diff.mean()) < 0.06),
+          ('speck fraction ratio mine / ref', speck_m / speck_r, '0.8 to 1.2', 0.8 <= speck_m / speck_r <= 1.2)]
+for k, (mean_e, max_e) in errs.items(): checks.append((f'profile {k} mean colour error', mean_e, '< 0.012', mean_e < 0.012))
+for k in sr:
+    ratios = np.array(sm[k]) / np.array(sr[k]); checks.append((f'{k} std ratio mine / ref at sigma 40, 15, 6, 2 px = {np.round(ratios, 2).tolist()}', float(np.abs(ratios - 1).max()), 'within 0.15', float(np.abs(ratios - 1).max()) < 0.15))
+lines0 = f'glaze mean ref {np.round(gmean_r, 3).tolist()} mine {np.round(gmean_m, 3).tolist()}; speck ref {speck_r:.4f} mine {speck_m:.4f}'
+lines = [f'# M{n:03d} {label}', lines0, f'Date: {datetime.datetime.now().day} {datetime.datetime.now().strftime("%B %Y, %H:%M")}', '', '| check | value | threshold | result |', '|---|---|---|---|']
+for name, val, thr, ok in checks: lines.append(f'| {name} | {val:.4f} | {thr} | {"PASS" if ok else "FAIL"} |')
+if render:
+    shutil.copy2(render, out / 'karma_render.png'); r = np.asarray(Image.open(D / '01a-julien-delannoy-10-left.png').convert('RGB').resize((1080, 1080))).astype(np.float32) / 255; q = np.asarray(Image.open(render).convert('RGB').resize((1080, 1080))).astype(np.float32) / 255
+    def st(a): lum = a.mean(2); sat = (a.max(2) - a.min(2)) / (a.max(2) + 1e-6); return a.reshape(-1, 3).mean(0), sat.mean(), lum.std(), np.percentile(lum, [5, 50, 95])
+    (m1, s1, d1, p1), (m2, s2, d2, p2) = st(r), st(q)
+    lines += ['', '## Karma render against 01a', f'- mean colour 01a {np.round(m1, 3).tolist()} mine {np.round(m2, 3).tolist()}', f'- saturation 01a {s1:.3f} mine {s2:.3f}', f'- luminance std 01a {d1:.3f} mine {d2:.3f}', f'- luminance p5/p50/p95 01a {np.round(p1, 3).tolist()} mine {np.round(p2, 3).tolist()}']
+    Image.fromarray((np.concatenate([r, q], 1) * 255).astype(np.uint8)).save(out / 'karma_vs_01a.png')
+lines += ['', '## Files', '- geometry_overlay_ref.png : green = reference tan pixels explained by the model, magenta = not explained', '- geometry_overlay_mine.png : same test on my map', '- basecolor_aligned_ref_vs_mine.png : reference | mine | difference x4', '- profiles_corner_centre_joint.png : colour profiles']
+(out / 'report.md').write_text('\n'.join(lines) + '\n')
+npass = sum(1 for c in checks if c[3])
+with open(M / 'HISTORY.md', 'a') as f:
+    if f.tell() == 0: f.write('# Measure history (append only). One line per run of Scripts/RunChecks.py\n\n')
+    f.write(f'- M{n:03d} {label} ({datetime.datetime.now().day} {datetime.datetime.now().strftime("%B %Y, %H:%M")}) : {npass}/{len(checks)} PASS; fails: {[c[0][:40] for c in checks if not c[3]]}\n')
+print(out); print('\n'.join(lines[3:3 + len(checks) + 2]))

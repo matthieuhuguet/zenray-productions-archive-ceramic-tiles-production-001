@@ -1,0 +1,49 @@
+# 30 September 2026 : measure the specular highlights (reflections) of a Karma frame against the final render 01a: fraction of pixels above several luminance thresholds, number and mean area of the
+# highlight blobs, mean peak, horizontal streakiness, and a per position map of the highlight density (8 x 8). Writes measures/H<N>_<label>/ (report.md, highlight_masks.png, density_8x8.npy). FR : mesure les reflets.
+import sys, re, json, datetime, pathlib, numpy as np
+from PIL import Image
+from scipy import ndimage as ndi
+D = pathlib.Path(__file__).resolve().parent.parent; M = D / 'measures'; label = sys.argv[1]; frame = sys.argv[2]
+n = max([int(m.group(1)) for f in M.glob('H*') if (m := re.match(r'H(\d+)', f.name))] + [0]) + 1
+out = M / f'H{n:03d}_{label}'; out.mkdir()
+S = 1080
+ref = np.asarray(Image.open(D / '01a-julien-delannoy-10-left.png').convert('RGB').resize((S, S), Image.LANCZOS)).astype(np.float32) / 255
+mine = np.asarray(Image.open(frame).convert('RGB').resize((S, S), Image.LANCZOS)).astype(np.float32) / 255
+def glint_mask(a, thr=0.45):
+    # 30 September 2026 : the tan lines are bright albedo, not reflections (the mask of 01a above 0.5 was mostly arcs and joints). A glint = bright AND not tan (even slightly dilated).
+    lum = a.mean(2); r_, g_, b_ = a[..., 0], a[..., 1], a[..., 2]; s_ = r_ + g_ + b_ + 1e-4
+    tan = ndi.binary_dilation((r_ >= 0.93 * g_) & (((r_ - b_) / s_) > 0.10) & (s_ > 0.12), iterations=2)
+    return (lum > thr) & ~tan
+def stats(a):
+    lum = a.mean(2); mx = a.max(2); r = {}
+    gm = glint_mask(a); lab_g, kg = ndi.label(gm); sz = ndi.sum(gm, lab_g, range(1, kg + 1)) if kg else np.array([0.0])
+    # 30 September 2026 : the mask above 0.45 mixes the pale SPECKS of the glaze (texture, peak about 0.45 to 0.5) with the real reflections; the BRIGHT glints above 0.60 are the reflections alone (01a: 0.39 percent of the non-tan pixels)
+    bm = glint_mask(a, 0.60); lab_b, kb = ndi.label(bm); szb = ndi.sum(bm, lab_b, range(1, kb + 1)) if kb else np.array([0.0])
+    r['BRIGHT frac (>0.60)'] = float(bm.mean()); r['BRIGHT blobs'] = int(kb); r['BRIGHT mean area'] = float(szb.mean()); r['BRIGHT p90 area'] = float(np.percentile(szb, 90)); r['BRIGHT p99 area'] = float(np.percentile(szb, 99))
+    r['BRIGHT frac>0.90'] = float(glint_mask(a, 0.90).mean())
+    r['GLINT frac'] = float(gm.mean()); r['GLINT blobs'] = int(kg); r['GLINT mean area'] = float(sz.mean()); r['GLINT p90 area'] = float(np.percentile(sz, 90)); r['GLINT p99 area'] = float(np.percentile(sz, 99))
+    r['GLINT mean peak'] = float(ndi.maximum(lum, lab_g, range(1, kg + 1)).mean()) if kg else 0.0
+    r['GLINT whiteness'] = float((a.min(2)[gm] / np.maximum(a.max(2)[gm], 1e-3)).mean()) if gm.any() else 0.0
+    for t in (0.40, 0.50, 0.60, 0.75):
+        r['frac_lum>%.2f' % t] = float((lum > t).mean())
+    m = lum > 0.50; lab, k = ndi.label(m)
+    sizes = ndi.sum(m, lab, range(1, k + 1)) if k else np.array([0])
+    r['blobs'] = int(k); r['blob_mean_area'] = float(sizes.mean()); r['blob_area_p90'] = float(np.percentile(sizes, 90))
+    r['whiteness_of_highlights'] = float((a.min(2)[m] / np.maximum(a.max(2)[m], 1e-3)).mean()) if m.any() else 0.0
+    gy = np.abs(np.diff(lum, axis=0)).mean(); gx = np.abs(np.diff(lum, axis=1)).mean(); r['gx/gy_streakiness'] = float(gx / gy)
+    r['mean_lum'] = float(lum.mean()); r['p99'] = float(np.percentile(lum, 99)); r['p99.9'] = float(np.percentile(lum, 99.9))
+    G = 8; blk = S // G; dens = np.zeros((G, G), np.float32); densb = np.zeros((G, G), np.float32)
+    for i in range(G):
+        for j in range(G):
+            dens[i, j] = gm[i * blk:(i + 1) * blk, j * blk:(j + 1) * blk].mean(); densb[i, j] = bm[i * blk:(i + 1) * blk, j * blk:(j + 1) * blk].mean()
+    r['_densb'] = densb
+    return r, dens, gm
+sr, dr, mr = stats(ref); sm, dm, mm = stats(mine)
+dbr, dbm = sr.pop('_densb'), sm.pop('_densb'); np.save(out / 'bright_density_ref_8x8.npy', dbr); np.save(out / 'bright_density_mine_8x8.npy', dbm)
+np.save(out / 'density_ref_8x8.npy', dr); np.save(out / 'density_mine_8x8.npy', dm)
+vis = np.zeros((S, S * 2 + 10, 3), np.uint8); vis[:, :S][mr] = 255; vis[:, S + 10:][mm] = 255; Image.fromarray(vis).resize((1600, 800)).save(out / 'highlight_masks_ref_left_mine_right.png')
+np.save(out / 'glint_density_ref_8x8.npy', dr); np.save(out / 'glint_density_mine_8x8.npy', dm)
+lines = [f'# H{n:03d} {label}', f'Date: {datetime.datetime.now().day} {datetime.datetime.now().strftime("%B %Y, %H:%M")}', '', 'Frame: ' + frame, '', '| measure | 01a | mine | ratio mine / 01a |', '|---|---|---|---|']
+for k in sr: lines.append('| %s | %.4f | %.4f | %.2f |' % (k, sr[k], sm[k], sm[k] / max(sr[k], 1e-6)))
+lines += ['', 'BRIGHT glint (>0.60) density per 8 x 8 cell, 01a (left) and mine (right), percent of the cell:'] + ['  '.join('%4.1f' % (100 * v) for v in dbr[i]) + '   |   ' + '  '.join('%4.1f' % (100 * v) for v in dbm[i]) for i in range(8)]
+(out / 'report.md').write_text('\n'.join(lines) + '\n'); print(out); print('\n'.join(lines[6:]))

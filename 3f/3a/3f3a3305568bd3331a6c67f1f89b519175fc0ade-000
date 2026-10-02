@@ -1,0 +1,9 @@
+#!/bin/zsh
+# 30 September 2026 : wait for a Karma frame written by Houdini (the MCP bridge times out during a render, the file still arrives), then run the highlight, colour and stats measures on it.
+# Usage: Scripts/WaitAndMeasure.sh <frame.png> <label>      FR : attend la frame, puis mesure reflets, couleur et statistiques.
+cd "$(dirname "$0")/.." || exit 1
+f="$1"; label="$2"
+until [ -s "$f" ]; do sleep 3; done; sleep 4
+python3 Scripts/MeasureHighlights.py "$label" "$f" | sed -n '3,$p' | cut -c1-110
+python3 Scripts/RenderStats.py "$f"
+python3 Scripts/CalibrateRenderToRef.py "$label" "$f" | sed -n '/Texture statistics/,$p' | head -6 | cut -c1-110

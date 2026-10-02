@@ -1,0 +1,35 @@
+# 30 September 2026 : measure MY basecolor (render/CeramicGreen_V6_basecolor.png, 480 px per tile) with the same model and statistics as the reference fit (ref-maps/basecolor_fit.json):
+# colour profile across the corner arcs, the inscribed circles and the joints, plus glaze statistics per scale. FR : memes statistiques que la ref, par famille.
+import numpy as np, json
+from PIL import Image
+from scipy import ndimage as ndi
+F = json.load(open('ref-maps/basecolor_fit.json')); PR = json.load(open('ref-maps/basecolor_aligned_profiles.json'))
+mine = np.asarray(Image.open('render/CeramicGreen_V6_basecolor.png').convert('RGB')).astype(np.float32) / 255
+H = W = 1920; T = 480.0; R = F['R']
+yy, xx = np.mgrid[0:H, 0:W].astype(np.float32); tx = xx / T; ty = yy / T
+ci = np.floor(tx).astype(int); ri = np.floor(ty).astype(int); u = tx - ci; v = ty - ri
+skip = np.where((ri + ci) % 2 == F['parity'], 0, 1)
+dc = np.full(u.shape, 9.0, np.float32)
+for cu in (0, 1):
+    for cv in (0, 1):
+        d = np.hypot(u - cu, v - cv) - R; faint = (skip == cu) & (cu == cv)
+        dc = np.where((np.abs(d) < np.abs(dc)) & ~faint, d, dc)
+dn = np.where(ri % 2 == 1, np.hypot(u - 0.5, v - 0.5) - R, 9.0)
+e = np.minimum(np.minimum(u, 1 - u), np.minimum(v, 1 - v)); px = 1 / 407.0; far = 14 * px
+def prof(field, mask, rows):
+    out = []; ref = []
+    for lo, hi, n, r, g, b in rows:
+        s = (field >= lo * px) & (field < hi * px) & mask
+        out.append(mine[s].mean(0) if s.sum() > 30 else np.full(3, np.nan)); ref.append([np.nan] * 3 if r is None else [r, g, b])
+    return np.array(out), np.array(ref)
+for key, field, mask in (('corner', dc, (np.abs(dn) > far) & (e > far)), ('centre', dn, (np.abs(dc) > far) & (e > far) & (dn < 9)), ('joint', e, (np.abs(dc) > far) & (np.abs(dn) > far))):
+    m, r = prof(field, mask, F[key]); err = np.abs(m - r)
+    print('%-7s max abs colour error over bins: %.3f  mean %.3f' % (key, np.nanmax(err), np.nanmean(err)))
+glaze = (e > 30 * px) & (np.minimum(np.abs(dc), np.abs(dn)) > 60 * px); lum = mine.mean(2)
+mm = {'glaze_mean': mine[glaze].mean(0), 'glaze_std': mine[glaze].std(0)}
+for name, sg in (('sigma40', 40), ('sigma15', 15), ('sigma6', 6), ('sigma2', 2)):
+    mm['lowpass_std_' + name] = float(ndi.gaussian_filter(lum, sg * 480 / 407.0)[glaze].std())
+mm['grain_std'] = float((lum - ndi.gaussian_filter(lum, 1.5 * 480 / 407.0))[glaze].std())
+mm['speck_frac'] = float(((lum - ndi.gaussian_filter(lum, 3 * 480 / 407.0)) > 0.10)[glaze].mean())
+for k in ('glaze_mean', 'glaze_std'): print('%-18s mine %s   ref %s' % (k, np.round(mm[k], 3), np.round(PR[k], 3)))
+for k in ('lowpass_std_sigma40', 'lowpass_std_sigma15', 'lowpass_std_sigma6', 'lowpass_std_sigma2', 'grain_std', 'speck_frac'): print('%-20s mine %.4f   ref %.4f' % (k, mm[k], PR[k]))

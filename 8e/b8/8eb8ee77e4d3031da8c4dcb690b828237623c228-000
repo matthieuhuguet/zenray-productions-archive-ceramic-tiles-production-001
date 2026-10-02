@@ -1,0 +1,65 @@
+# 30 September 2026 : compare MY Karma frame with the final render 01a class by class, in the aligned 4 tile frame, so that the colour can be calibrated by measurement instead of by eye.
+# Classes: dish / plateau (closed form parity of the layout) x distance to the nearest arc (bands in pixels of the 1080 frame) + a low frequency position field (vignette) + grain / speck / dirt statistics.
+# Output: measures/C<N>_<label>/ (report.md, class_table.json, ratio_field.png, side_by_side.png). Usage: python3 CalibrateRenderToRef.py <label> <frame.png>
+# FR : compare mon rendu Karma a 01a classe par classe (cuvette / plateau x distance a l'arc) + champ de basse frequence (vignette) + grain / paillettes / saleté.
+import sys, re, json, datetime, pathlib, numpy as np
+from PIL import Image
+from scipy import ndimage as ndi
+D = pathlib.Path(__file__).resolve().parent.parent; M = D / 'measures'; label = sys.argv[1]; frame = sys.argv[2]
+n = max([int(m.group(1)) for f in M.glob('C*') if (m := re.match(r'C(\d+)', f.name))] + [0]) + 1
+out = M / f'C{n:03d}_{label}'; out.mkdir()
+S = 1080
+ref = np.asarray(Image.open(D / '01a-julien-delannoy-10-left.png').convert('RGB').resize((S, S), Image.LANCZOS)).astype(np.float32) / 255
+mine = np.asarray(Image.open(frame).convert('RGB').resize((S, S), Image.LANCZOS)).astype(np.float32) / 255
+T = json.load(open(D / 'ref-maps/01a_truchet.json')); C = json.load(open(D / 'ref-maps/01a_dish.json'))['C']
+yy, xx = np.mgrid[0:S, 0:S].astype(np.float32); t = S / 4.0
+u = (xx / t) % 1; v = (yy / t) % 1; tc = (xx // t).astype(int); tr = (yy // t).astype(int); q = (u > .5).astype(int) + 2 * (v > .5).astype(int)
+dA_ = np.zeros((4, 4, 4), int); dB_ = np.zeros((4, 4, 4), int)
+for r in range(4):
+    for c in range(4):
+        for k, nm in enumerate(('TL', 'TR', 'BL', 'BR')): s = T[f'r{r}c{c}'][nm]; dA_[r, c, k] = 'A' in s; dB_[r, c, k] = 'B' in s
+cu = np.where((q == 1) | (q == 3), 1., 0.); cv = np.where(q >= 2, 1., 0.)
+fa = dA_[tr, tc, q]; fb = dB_[tr, tc, q]
+dA = np.where(fa > 0, np.hypot(u - cu, v - cv) - 0.5, 9.0); dB = np.where(fb > 0, np.hypot(u - .5, v - .5) - 0.5, 9.0)
+inA = (dA < 0).astype(int); inB = (dB < 0).astype(int)
+dish = ((fa & inA) ^ (fb & inB) ^ np.array(C).reshape(4, 4, 4)[tr, tc, q]).astype(bool)
+dist = np.minimum(np.abs(dA), np.abs(dB)) * t                                   # pixels of the 1080 frame
+edge = np.minimum(np.minimum(u, 1 - u), np.minimum(v, 1 - v)) * t
+lumr = ref.mean(2); lumm = mine.mean(2)
+gloss = (lumr > 0.50) | (lumm > 0.50)                                          # glints are lighting, not albedo: excluded from the class means
+bands = [(0, 3), (3, 7), (7, 12), (12, 20), (20, 32), (32, 50), (50, 80), (80, 400)]
+rows = []
+for d_name, dmask in (('dish', dish), ('plateau', ~dish)):
+    for lo, hi in bands:
+        m = dmask & (dist >= lo) & (dist < hi) & (edge > 6) & ~gloss
+        if m.sum() < 200: continue
+        mr, mm = ref[m].mean(0), mine[m].mean(0)
+        rows.append(dict(cls=d_name, lo=lo, hi=hi, n=int(m.sum()), ref=mr.round(4).tolist(), mine=mm.round(4).tolist(), ratio=(mr / np.maximum(mm, 1e-3)).round(4).tolist(),
+                         ref_std=ref[m].std(0).round(4).tolist(), mine_std=mine[m].std(0).round(4).tolist()))
+json.dump(rows, open(out / 'class_table.json', 'w'), indent=1)
+# low frequency position field: ratio of the block means, glints and lines excluded
+G = 8; blk = S // G; ratio = np.ones((G, G, 3), np.float32)
+for i in range(G):
+    for j in range(G):
+        sl = (slice(i * blk, (i + 1) * blk), slice(j * blk, (j + 1) * blk)); m = ~gloss[sl] & (dist[sl] > 12) & (edge[sl] > 6)
+        if m.sum() > 200: ratio[i, j] = ref[sl][m].mean(0) / np.maximum(mine[sl][m].mean(0), 1e-3)
+gm = ref[~gloss & (dist > 12) & (edge > 6)].mean(0) / np.maximum(mine[~gloss & (dist > 12) & (edge > 6)].mean(0), 1e-3)
+ratio = ratio / gm                                                                # 30 September 2026 : the position field is RELATIVE (mean 1); the overall level belongs to the band gains, otherwise it is counted twice
+np.save(out / 'vignette_ratio_8x8.npy', ratio)
+field = np.asarray(Image.fromarray((np.clip(ratio / 2, 0, 1) * 255).astype(np.uint8)).resize((540, 540), Image.BICUBIC))
+Image.fromarray(field).save(out / 'ratio_field.png')
+glaze = ~gloss & (dist > 25) & (edge > 12)
+def fine(a): return (a.mean(2) - ndi.gaussian_filter(a.mean(2), 1.2))
+def mid(a): return ndi.gaussian_filter(a.mean(2), 2.0) - ndi.gaussian_filter(a.mean(2), 9.0)
+def speck(a): lum = a.mean(2); return float(((lum - ndi.gaussian_filter(lum, 3)) > 0.07)[glaze].mean())
+def dark(a): lum = a.mean(2); return float(((lum - ndi.gaussian_filter(lum, 6)) < -0.05)[glaze].mean())
+st = {'fine_std': (float(fine(ref)[glaze].std()), float(fine(mine)[glaze].std())), 'mid_std': (float(mid(ref)[glaze].std()), float(mid(mine)[glaze].std())),
+      'speck_frac': (speck(ref), speck(mine)), 'dark_frac': (dark(ref), dark(mine)),
+      'glaze_mean_ref': ref[glaze].mean(0).round(4).tolist(), 'glaze_mean_mine': mine[glaze].mean(0).round(4).tolist()}
+json.dump(st, open(out / 'texture_stats.json', 'w'), indent=1)
+lines = [f'# C{n:03d} {label}', f'Date: {datetime.datetime.now().day} {datetime.datetime.now().strftime("%B %Y, %H:%M")}', '', 'Frame compared: ' + frame, '', '| class | px | ref (r g b) | mine (r g b) | ratio ref/mine |', '|---|---|---|---|---|']
+for r_ in rows: lines.append('| %s %d-%d px | %d | %s | %s | %s |' % (r_['cls'], r_['lo'], r_['hi'], r_['n'], r_['ref'], r_['mine'], r_['ratio']))
+lines += ['', '## Texture statistics in the glaze (ref, mine)'] + [f'- {k}: ref {v[0]:.4f}, mine {v[1]:.4f}' for k, v in st.items() if isinstance(v[0], float)] + [f'- glaze mean ref {st["glaze_mean_ref"]}, mine {st["glaze_mean_mine"]}']
+(out / 'report.md').write_text('\n'.join(lines) + '\n')
+Image.fromarray((np.concatenate([ref, np.ones((S, 10, 3), np.float32) * .1, mine], 1) * 255).astype(np.uint8)).save(out / 'side_by_side.png')
+print(out); print('\n'.join(lines[4:]))

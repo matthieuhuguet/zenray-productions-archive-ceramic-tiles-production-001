@@ -1,0 +1,10 @@
+# 30 September 2026 : colour statistics of a render against the final reference 01a (mean colour, saturation, luminance spread, percentiles). Usage: python3 RenderStats.py render.png
+# FR : statistiques de couleur d'un rendu contre la ref finale 01a.
+import sys, numpy as np
+from PIL import Image
+def stat(p, size=1080):
+    a = np.asarray(Image.open(p).convert('RGB').resize((size, size))).astype(np.float32) / 255
+    lum = a.mean(2); mx = a.max(2); mn = a.min(2); sat = (mx - mn) / (mx + 1e-6)
+    return dict(mean=a.reshape(-1, 3).mean(0).round(3), sat=round(float(sat.mean()), 3), lum_std=round(float(lum.std()), 3), p5=round(float(np.percentile(lum, 5)), 3), p50=round(float(np.percentile(lum, 50)), 3), p95=round(float(np.percentile(lum, 95)), 3))
+r = stat('01a-julien-delannoy-10-left.png'); m = stat(sys.argv[1])
+for k in r: print('%-8s 01a %s   mine %s' % (k, r[k], m[k]))

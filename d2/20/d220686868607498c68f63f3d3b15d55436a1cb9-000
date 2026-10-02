@@ -1,0 +1,59 @@
+# 30 September 2026 : the motif of 01a as a per-tile, per-corner table. Each tile has four corner regions; in each one the tan line is a quarter circle joining the two adjacent edge midpoints and is either
+#   A = centred on the CORNER (bulges towards the tile centre), B = centred on the TILE CENTRE (bulges towards the corner), or 0 = no line.
+# The black and white tan mask of the reference (ref-maps/01a_tan_mask2.npy) is correlated with both candidates, tile by tile, after a small per-tile shift (the reference render has a little perspective).
+# Output: ref-maps/01a_truchet.json (table of 16 x 4 letters) and ref-maps/01a_truchet_overlay.png (A green, B cyan, 0 magenta dots). FR : le motif de 01a en tableau par carreau et par coin.
+import numpy as np, json
+from PIL import Image, ImageDraw
+from scipy import ndimage as ndi
+m = np.load('ref-maps/01a_tan_mask2.npy'); md = ndi.binary_dilation(m, iterations=4); H, W = m.shape
+T = 480.0; R = 240.0; M = 10
+corners = {'TL': (0, 0, 0.0, 0.5 * np.pi), 'TR': (1, 0, 0.5 * np.pi, np.pi), 'BL': (0, 1, 1.5 * np.pi, 2 * np.pi), 'BR': (1, 1, np.pi, 1.5 * np.pi)}   # A: angles measured from the corner centre; y down
+bang = {'TL': (np.pi, 1.5 * np.pi), 'TR': (1.5 * np.pi, 2 * np.pi), 'BL': (0.5 * np.pi, np.pi), 'BR': (0, 0.5 * np.pi)}                       # B: angles measured from the tile centre, facing the corner
+def cov(cx, cy, a0, a1, x0, y0, dx, dy):
+    ang = np.linspace(a0 + 0.06, a1 - 0.06, 70); px = cx + dx + R * np.cos(ang); py = cy + dy + R * np.sin(ang)
+    ok = (px > x0 + M) & (px < x0 + T - M) & (py > y0 + M) & (py < y0 + T - M) & (px >= 0) & (px < W) & (py >= 0) & (py < H)
+    if ok.sum() < 20: return 0.0
+    return float(md[py[ok].astype(int), px[ok].astype(int)].mean())
+table = {}; shifts = {}
+for r in range(4):
+    for c in range(4):
+        x0, y0 = c * T, r * T; best = (-1,)
+        for dx in range(-16, 17, 2):
+            for dy in range(-16, 17, 2):
+                sc = 0.0; ch = {}
+                for k, (cu, cv, a0, a1) in corners.items():
+                    a = cov(x0 + cu * T, y0 + cv * T, a0, a1, x0, y0, dx, dy)
+                    b = cov(x0 + 0.5 * T, y0 + 0.5 * T, bang[k][0], bang[k][1], x0, y0, dx, dy)
+                    ch[k] = (a, b); sc += max(a, b)
+                if sc > best[0]: best = (sc, dx, dy, ch)
+        _, dx, dy, ch = best; shifts[(r, c)] = (dx, dy)
+        table[(r, c)] = {k: (('A' if a >= 0.55 else '') + ('B' if b >= 0.55 else '') or '0') for k, (a, b) in ch.items()}   # both letters = lens (both arcs are present)
+        table[(r, c)]['scores'] = {k: (round(a, 2), round(b, 2)) for k, (a, b) in ch.items()}
+print('rows r0..r3, columns c0..c3, corners TL TR BL BR (two letters each): A corner circle, B tile-centre circle, AB both (lens), 0 none')
+for r in range(4): print('r%d  ' % r + '   '.join(' '.join(table[(r, c)][k].ljust(2) for k in ('TL', 'TR', 'BL', 'BR')) for c in range(4)))
+json.dump({f'r{r}c{c}': {k: table[(r, c)][k] for k in ('TL', 'TR', 'BL', 'BR')} | {'shift': list(shifts[(r, c)]), 'scores': table[(r, c)]['scores']} for r in range(4) for c in range(4)}, open('ref-maps/01a_truchet.json', 'w'), indent=1)
+ov = Image.fromarray((m * 255).astype(np.uint8)).convert('RGB'); d = ImageDraw.Draw(ov)
+for r in range(4):
+    for c in range(4):
+        x0, y0 = c * T + shifts[(r, c)][0], r * T + shifts[(r, c)][1]
+        for k, (cu, cv, a0, a1) in corners.items():
+            t = table[(r, c)][k]
+            if 'A' in t: d.arc([x0 + cu * T - R, y0 + cv * T - R, x0 + cu * T + R, y0 + cv * T + R], np.degrees(a0), np.degrees(a1), fill=(0, 255, 0), width=3)
+            if 'B' in t: d.arc([x0 + T / 2 - R, y0 + T / 2 - R, x0 + T / 2 + R, y0 + T / 2 + R], np.degrees(bang[k][0]), np.degrees(bang[k][1]), fill=(0, 255, 255), width=3)
+            if t == '0': d.ellipse([x0 + (0.25 + 0.5 * cu) * T - 6, y0 + (0.25 + 0.5 * cv) * T - 6, x0 + (0.25 + 0.5 * cu) * T + 6, y0 + (0.25 + 0.5 * cv) * T + 6], fill=(255, 0, 255))
+ov.resize((1000, 1000)).save('ref-maps/01a_truchet_overlay.png')
+
+model = np.zeros((H, W), bool); mm = Image.new('L', (W, H), 0); dd = ImageDraw.Draw(mm)
+for r in range(4):
+    for c in range(4):
+        x0, y0 = c * T + shifts[(r, c)][0], r * T + shifts[(r, c)][1]
+        for k, (cu, cv, a0, a1) in corners.items():
+            t = table[(r, c)][k]
+            if 'A' in t: dd.arc([x0 + cu * T - R, y0 + cv * T - R, x0 + cu * T + R, y0 + cv * T + R], np.degrees(a0), np.degrees(a1), fill=255, width=9)
+            if 'B' in t: dd.arc([x0 + T / 2 - R, y0 + T / 2 - R, x0 + T / 2 + R, y0 + T / 2 + R], np.degrees(bang[k][0]), np.degrees(bang[k][1]), fill=255, width=9)
+model = np.asarray(mm) > 0
+joints = np.zeros((H, W), bool)
+for i in range(5): joints[max(i * 480 - 6, 0):i * 480 + 7, :] = True; joints[:, max(i * 480 - 6, 0):i * 480 + 7] = True
+md2 = ndi.binary_dilation(m, iterations=4)
+print('recall of the tan pixels (excluding joints) explained by the table: %.3f' % ((m & ndi.binary_dilation(model, iterations=6) & ~joints).sum() / (m & ~joints).sum()))
+print('precision: fraction of modelled arc pixels that are tan: %.3f' % (md2[model].mean()))

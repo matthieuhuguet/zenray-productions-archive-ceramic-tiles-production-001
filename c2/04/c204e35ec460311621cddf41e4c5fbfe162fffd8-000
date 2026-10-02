@@ -1,0 +1,84 @@
+# 30 September 2026 : fit the exact geometry (tile size T, joint offsets ox/oy, radius R, faint-corner parity) of a reference strip with the FULL circle model (four corner arcs with the faint one
+# removed, plus the inscribed circle of the odd rows, plus joints) by maximising the correlation with a line mask; then measure the profile of the strip across each family (corner arc, inscribed
+# circle, joint), on both sides, at 1/2 px steps. Usage: python3 FitRefStrip.py basecolor|height    Output: ref-maps/<name>_fit.json.
+# FR : ajuste la geometrie exacte d'une bande de ref avec le modele complet (arcs de coins, cercle inscrit des lignes impaires, joints), puis mesure les profils par famille.
+import sys, json, numpy as np
+from PIL import Image
+from scipy import ndimage as ndi
+name = sys.argv[1]
+img = np.asarray(Image.open(f'ref-maps/ref_{name}.png').convert('RGB')).astype(np.float32) / 255
+H, W = img.shape[:2]
+if name == 'basecolor': mask = ndi.gaussian_filter((img[..., 0] - img[..., 2] - 0.14).clip(0, 1), 1.0)
+else:
+    g = img.mean(2); mask = (g - ndi.gaussian_filter(g, 12)).clip(0, None); mask = ndi.gaussian_filter(mask, 0.7)
+mask = mask / (mask.max() + 1e-9)
+yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
+def fields(R, parity, T, ox, oy, xx=xx, yy=yy):
+    tx = (xx - ox) / T; ty = (yy - oy) / T
+    ci = np.floor(tx).astype(int); ri = np.floor(ty).astype(int); u = tx - ci; v = ty - ri
+    skip = np.where((ri + ci) % 2 == parity, 0, 1)
+    dcorner = np.full(u.shape, 9.0, np.float32); scorner = np.zeros(u.shape, np.float32)
+    for cu in (0, 1):
+        for cv in (0, 1):
+            r = np.hypot(u - cu, v - cv); d = r - R
+            faint = (skip == cu) & (cu == cv)
+            better = (np.abs(d) < np.abs(dcorner)) & ~faint
+            dcorner = np.where(better, d, dcorner)
+    r = np.hypot(u - 0.5, v - 0.5); dcentre = np.where(ri % 2 == 1, r - R, 9.0)
+    e = np.minimum(np.minimum(u, 1 - u), np.minimum(v, 1 - v))
+    return dcorner, dcentre, e
+def model(*a, width=0.008):
+    dc, dn, e = fields(*a)
+    return 1 - np.clip(np.minimum(np.minimum(np.abs(dc), np.abs(dn)), e) / width, 0, 1)
+def corr(a, b): return np.corrcoef(a.ravel(), b.ravel())[0, 1]
+# coarse-to-fine search. For 'height' the pan of the strip is unknown, so the coarse search covers the whole tile at 4 px steps on a decimated copy.
+best = (-2,)
+G0 = json.load(open('ref-maps/basecolor_geometry.json'))
+if name == 'basecolor':
+    for parity in (0, 1):
+        for R in np.arange(0.494, 0.502, 0.002):
+            for ox in np.arange(G0['ox'] - 3, G0['ox'] + 4, 1.0):
+                for oy in np.arange(G0['oy'] - 3, G0['oy'] + 4, 1.0):
+                    c = corr(model(R, parity, 407.0, ox, oy), mask)
+                    if c > best[0]: best = (c, parity, R, 407.0, ox, oy)
+else:
+    D = 4; xd = xx[::D, ::D]; yd = yy[::D, ::D]; md = mask[::D, ::D]
+    for parity in (0, 1):
+        for ox in np.arange(0, 407, 4.0):
+            for oy in np.arange(0, 407, 4.0):
+                dc_, dn_, e_ = fields(0.498, parity, 407.0, ox, oy, xd, yd)
+                m = 1 - np.clip(np.minimum(np.minimum(np.abs(dc_), np.abs(dn_)), e_) / 0.008, 0, 1)
+                c = corr(m, md)
+                if c > best[0]: best = (c, parity, 0.498, 407.0, ox, oy)
+print('coarse', best)
+c, parity, R, T, ox, oy = best
+for step in (1.0, 0.5, 0.25):
+    for dR in (-0.002, -0.001, 0, 0.001, 0.002):
+        for dT in (-0.5, -0.25, 0, 0.25, 0.5):
+            for dox in (-step, 0, step):
+                for doy in (-step, 0, step):
+                    m = model(R + dR, parity, T + dT, ox + dox, oy + doy)
+                    c2 = corr(m, mask)
+                    if c2 > best[0]: best = (c2, parity, R + dR, T + dT, ox + dox, oy + doy)
+    c, parity, R, T, ox, oy = best
+print('fine', best)
+dc, dn, e = fields(R, parity, T, ox, oy); px = 1 / T
+edges = np.array([-64, -40, -28, -20, -15, -12, -10, -8, -6, -5, -4, -3, -2, -1.5, -1, -0.5, 0, 0.5, 1, 1.5, 2, 3, 4, 5, 6, 8, 10, 12, 15, 20, 28, 40, 64]) * px
+def prof(field, mask_):
+    rows = []
+    for lo, hi in zip(edges[:-1], edges[1:]):
+        s = (field >= lo) & (field < hi) & mask_
+        rows.append([float(lo / px), float(hi / px), int(s.sum())] + ([float(x) for x in img[s].mean(0)] if s.sum() > 25 else [None] * 3))
+    return rows
+out = {'corr': float(best[0]), 'parity': int(parity), 'R': float(R), 'T': float(T), 'ox': float(ox), 'oy': float(oy)}
+far = 14 * px
+out['corner'] = prof(dc, (np.abs(dn) > far) & (e > far))
+out['centre'] = prof(dn, (np.abs(dc) > far) & (e > far) & (dn < 9))
+ej = np.array([0, 0.5, 1, 1.5, 2, 2.5, 3, 4, 5, 6, 8, 10, 12, 15, 20, 28, 40, 64, 100, 200]) * px
+rows = []
+for lo, hi in zip(ej[:-1], ej[1:]):
+    s = (e >= lo) & (e < hi) & (np.abs(dc) > far) & (np.abs(dn) > far)
+    rows.append([float(lo / px), float(hi / px), int(s.sum())] + ([float(x) for x in img[s].mean(0)] if s.sum() > 25 else [None] * 3))
+out['joint'] = rows
+json.dump(out, open(f'ref-maps/{name}_fit.json', 'w'), indent=1)
+print({k: out[k] for k in ('corr', 'parity', 'R', 'T', 'ox', 'oy')})

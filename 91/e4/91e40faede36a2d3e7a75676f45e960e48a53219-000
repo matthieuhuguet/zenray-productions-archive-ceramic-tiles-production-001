@@ -1,0 +1,35 @@
+# 30 September 2026 : principal directions and standard deviations of the texture of the final render 01a itself (fine grain, medium mottling), glaze only, at the 1080 frame scale, plus the size of the specks.
+# Output: ref-maps/01a_colour_calib.json (keys 'pca_fine', 'pca_mid', 'speck'). FR : directions principales et ecarts-types de la texture de 01a.
+import json, numpy as np, pathlib
+from PIL import Image
+from scipy import ndimage as ndi
+D = pathlib.Path('.'); S = 1080
+ref = np.asarray(Image.open('01a-julien-delannoy-10-left.png').convert('RGB').resize((S, S), Image.LANCZOS)).astype(np.float32) / 255
+T = json.load(open('ref-maps/01a_truchet.json')); t = S / 4.0
+yy, xx = np.mgrid[0:S, 0:S].astype(np.float32); u = (xx / t) % 1; v = (yy / t) % 1
+# glaze: away from every line (tile edges and the circles of the layout), and not a glint
+tr = (yy // t).astype(int); tc = (xx // t).astype(int); q = (u > .5).astype(int) + 2 * (v > .5).astype(int)
+fa = np.zeros((4, 4, 4), int); fb = np.zeros((4, 4, 4), int)
+for r in range(4):
+    for c in range(4):
+        for k, nm in enumerate(('TL', 'TR', 'BL', 'BR')): s = T[f'r{r}c{c}'][nm]; fa[r, c, k] = 'A' in s; fb[r, c, k] = 'B' in s
+cu = np.where((q == 1) | (q == 3), 1., 0.); cv = np.where(q >= 2, 1., 0.)
+dA = np.where(fa[tr, tc, q] > 0, np.abs(np.hypot(u - cu, v - cv) - .5), 9.); dB = np.where(fb[tr, tc, q] > 0, np.abs(np.hypot(u - .5, v - .5) - .5), 9.)
+dist = np.minimum(dA, dB) * t; edge = np.minimum(np.minimum(u, 1 - u), np.minimum(v, 1 - v)) * t
+lum = ref.mean(2); glaze = (dist > 25) & (edge > 12) & (lum < 0.5)
+def pca(band):
+    X = band[glaze]; X = X - X.mean(0); w, V = np.linalg.eigh(np.cov(X.T)); idx = np.argsort(w)[::-1]; w = w[idx]; V = V[:, idx]
+    for i in range(3):
+        if V[1, i] < 0: V[:, i] *= -1
+    return {'std': np.sqrt(np.clip(w, 0, None)).round(5).tolist(), 'dirs': V.T.round(4).tolist()}
+def lp(s): return np.stack([ndi.gaussian_filter(ref[..., c], s) for c in range(3)], -1)
+fine = ref - lp(1.2); mid = lp(1.2) - lp(6.0); broad = lp(6.0) - lp(40.0)
+out = {'pca_fine': pca(fine), 'pca_mid': pca(mid), 'pca_broad': pca(broad)}
+d = lum - ndi.gaussian_filter(lum, 3)
+out['speck'] = {'fraction_above_0.07': float((d > 0.07)[glaze].mean()), 'fraction_above_0.12': float((d > 0.12)[glaze].mean()), 'mean_excess_of_specks': float(d[(d > 0.07) & glaze].mean()),
+                'speck_colour_mean': ref[(d > 0.07) & glaze].mean(0).round(4).tolist(), 'glaze_colour_mean': ref[glaze].mean(0).round(4).tolist()}
+dk = lum - ndi.gaussian_filter(lum, 6)
+out['dirt'] = {'fraction_below_-0.05': float((dk < -0.05)[glaze].mean()), 'mean_deficit': float(dk[(dk < -0.05) & glaze].mean()), 'dirt_colour_mean': ref[(dk < -0.05) & glaze].mean(0).round(4).tolist()}
+json.dump(out, open('ref-maps/01a_texture_pca.json', 'w'), indent=1)
+for k in ('pca_fine', 'pca_mid', 'pca_broad'): print(k, out[k]['std'], out[k]['dirs'][0])
+print(out['speck']); print(out['dirt'])

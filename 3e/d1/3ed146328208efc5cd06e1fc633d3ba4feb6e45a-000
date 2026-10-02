@@ -1,0 +1,85 @@
+# 30 September 2026 : V12 = V11 + the CLEAN CUT. In 01a an arch is a wall cut as if by a saw: a FLAT band of bare clay, 8 px wide at 1920 px, with 1 px crisp edges, a 1 px cream hairline on each edge and a fringe of broken
+# orange rust dots (1 percent of the pixels); a tile joint is a 2 px black core flanked by 1 to 2 px cream hairlines and 4 to 6 px of brown rust. Mine were 14 px wide, blurred, with a black crescent on the far side (the steep foot of
+# the wall faced away from the light) and 50 times fewer rust dots. Two wrangles, each computes the layout distances itself, so no second input is needed: ZI paints the colours per pixel, N8 flattens the normal on the band and
+# rounds it over a short shoulder. Colours were measured: texture value = wanted render value / (render over texture) of the tan pixels = (0.62, 0.735, 0.52). FR : V12 = coupe nette des arcs et des joints.
+import hou, runpy
+B = '/Users/zenray/.claude/tmp/tmp-houdini-september-2026/tmp-materials-substance-copernicus-30-09-2026/'
+G11 = runpy.run_path(B + 'Scripts/BuildCeramicGreenHueV11.py')
+net, G, UV = G11['net'], G11['G'], G11['UV']
+node, vex, CH = G['node'], G['vex'], G['CH']
+P12 = {
+    'tile_px': 480.0,             # pixels of one tile in the 1920 px maps
+    'band_half_px': 4.8,          # half width of the clay band of an arch, pixels (8 px band in 01a)
+    'edge_px': 0.6,               # softness of the band edge, pixels (crisp)
+    'tan': (0.46, 0.31, 0.245),     # texture value whose render is (0.38, 0.29, 0.165), the median tan of 01a (measured with the 1 px pixel filter: render over texture = 0.79, 0.91, 0.655)
+    'cream': (0.86, 0.68, 0.74),   # texture value whose render is the cream of 01a (0.66, 0.60, 0.475): render over texture = 0.79, 0.91, 0.655   # hairline, render (0.66, 0.60, 0.475)
+    'rust': (0.85, 0.33, 0.14),   # broken dots, render (0.361, 0.224, 0.114) after the texture filter blends a 2 px dot with its neighbours
+    'rust_p0': 0.36, 'rust_len_px': 2.2, 'rust_tail_p': 0.012, 'rust_tail_px': 10.0, 'halo_strip_px': (8.0, 18.0), 'slope_cap_near': 0.72, 'slope_cap_far': 0.88, 'slope_cap_px': (2.0, 9.0),          # probability of a dot at the edge of the band and its decay length
+    'joint_core_px': 1.5, 'joint_hair_px': 3.6, 'joint_brown_px': 8.0, 'joint_rust_p0': 0.22, 'joint_rust_len_px': 3.0,
+    'joint_black': (0.02, 0.014, 0.01), 'joint_hair': (1.0, 0.86, 0.86), 'joint_brown': (0.62, 0.34, 0.22),
+    'flat_shoulder_px': 4.0,      # the normal is flat on the band and returns to the bowl over this many pixels
+    'flat_joint_px': 3.0,
+}
+def v3(t): return 'set(%.4f, %.4f, %.4f)' % t
+COMMON = G['LAYOUT_VEX'] + UV + '''float dA; float dB; float dsh;
+lay(LT01A, LC01A, tc, tr, u, v, %s, int(%s + 0.5), dA, dB, dsh);
+float PXL = 1.0 / %f;                                        // one map pixel in tile units
+float dpx = min(abs(dA), abs(dB)) / PXL;                     // pixels to the centre line of the nearest arc
+float epx = min(min(u, 1.0 - u), min(v, 1.0 - v)) / PXL;     // pixels to the nearest tile edge (joint centre)
+''' % (CH('ring_radius'), CH('layout_source'), P12['tile_px'])
+HW, SO = P12['band_half_px'], P12['edge_px']
+alb_code = COMMON + '''vector c = set(p@C.x, p@C.y, p@C.z);
+float ix = floor((@P.x + 1.0) * 960.0); float iy = floor((@P.y + 1.0) * 960.0);     // one random number per map pixel
+float r1 = rand(set(ix, iy)); float r2 = rand(set(iy + 17.0, ix + 91.0)); float r3 = rand(set(ix * 0.37 + 5.0, iy * 0.71 + 3.0));   // 1 px cells: they survive now that the Karma pixel filter is 1 px wide (with the 2 px gaussian they vanished)
+// the old gold halo around the walls is not in 01a: pull the orange tint of the glaze back to the glaze ratios (R/G 0.77, B/G 0.58) away from the band
+float wh = 1.0 - smooth(%f, %f, dpx);
+float tanness = smooth(0.80, 1.05, c.x / max(c.y, 0.01));
+c = lerp(c, set(c.y * 0.74, c.y, c.y * 0.64) * (1.0 - 0.38 * wh), wh * smooth(%f - 0.5, %f + 1.0, dpx));      // darker, cooler green right under the wall as in 01a (the gold halo had raised the green channel: a pure ratio fix gave a lime ring)
+// rust fringe on both sides of the arch: broken 2 px dots, dense against the band edge, a thin tail further out
+float fa = max(dpx - %f, 0.0);
+if (dpx > %f && r1 < %f * exp(-fa / %f) + %f * exp(-fa / %f)) c = lerp(c, %s * (0.85 + 0.30 * r2), 0.95);
+// the clay band, flat, with a little mottling, then one crisp cream hairline on each edge
+float band = 1.0 - smooth(%f - %f, %f + %f, dpx);
+c = lerp(c, %s * (0.76 + 0.48 * r3), band);
+if (band > 0.5 && r2 < 0.07) c = c * 0.65;
+if (band > 0.5 && r1 > 0.93) c = c * 1.22;
+float hair = exp(-pow((dpx - %f) / 0.7, 2.0));
+c = lerp(c, %s * (0.92 + 0.12 * r2), hair);
+// tile joint: brown rust zone, rust dots, cream hairlines, black core (symmetric)
+float jb = 1.0 - smooth(%f, %f, epx);
+c = lerp(c, %s, jb * 0.55);
+if (epx > %f && r2 < %f * exp(-(epx - %f) / %f)) c = %s * (0.85 + 0.30 * r1);
+float jh = smooth(%f - 0.5, %f + 0.3, epx) * (1.0 - smooth(%f, %f + 0.5, epx));
+c = lerp(c, %s, jh);
+float jc = 1.0 - smooth(%f - 0.3, %f + 0.3, epx);
+c = lerp(c, %s, jc);
+p@C = set(c.x, c.y, c.z, p@C.w);
+''' % (P12['halo_strip_px'][0], P12['halo_strip_px'][1], HW, HW, HW, HW, P12['rust_p0'], P12['rust_len_px'], P12['rust_tail_p'], P12['rust_tail_px'], v3(P12['rust']),
+       HW, SO, HW, SO, v3(P12['tan']), HW, v3(P12['cream']),
+       P12['joint_hair_px'], P12['joint_brown_px'], v3(P12['joint_brown']),
+       P12['joint_hair_px'], P12['joint_rust_p0'], P12['joint_hair_px'], P12['joint_rust_len_px'], v3(P12['rust']),
+       P12['joint_core_px'], P12['joint_core_px'], P12['joint_hair_px'], P12['joint_hair_px'], v3(P12['joint_hair']),
+       P12['joint_core_px'], P12['joint_core_px'], v3(P12['joint_black']))
+src = net.node('ZH_BASECOLOR__ceramic_green_hue')
+cut = vex(net, 'ZI_albedo__clean_cut_arches_and_joints', [src], alb_code)
+out = node(net, 'null', 'ZJ_BASECOLOR__ceramic_green_clean_cut', [cut])
+net.node('FINAL_3_BASECOLOR').setInput(0, out); net.node('U4_export__basecolor_v6').setInput(0, out)
+nrm_code = COMMON + '''vector4 n0 = p@C;
+vector2 t = set(n0.x - 0.5, n0.y - 0.5) * 2.0;
+float wf = 1.0 - smooth(%f, %f + %f, dpx);            // 1 on the band, back to the bowl over the shoulder
+float wj = 1.0 - smooth(%f * 0.5, %f, epx);           // the joint core and its hairlines are flat too
+float l = length(t);
+float cap = lerp(%f, %f, smooth(%f, %f, dpx));        // near the wall the tilt is capped: Karma shades a normal facing away from the light black
+if (l > cap) t *= cap / l;
+t *= (1.0 - max(wf, wj));
+float z = sqrt(max(1.0 - dot(t, t), 0.0));
+p@C = set(t.x * 0.5 + 0.5, t.y * 0.5 + 0.5, z * 0.5 + 0.5, n0.w);
+''' % (HW, HW, P12['flat_shoulder_px'], P12['flat_joint_px'], P12['flat_joint_px'], P12['slope_cap_near'], P12['slope_cap_far'], P12['slope_cap_px'][0], P12['slope_cap_px'][1])
+n_out = net.node('U3_NORMAL__ceramic_green_v6'); prev = n_out.input(0)
+flat = vex(net, 'N8_normal__flat_cut_band_and_joint', [prev], nrm_code)
+n_out.setInput(0, flat)
+box = net.createNetworkBox(); box.setComment('AE  CLEAN CUT: flat clay band, crisp hairlines, rust dots (colour) + flat band and joint (normal)'); box.setColor(hou.Color((0.95, 0.75, 0.45)))
+x0 = max(n.position().x() for n in net.children() if n.name() not in (cut.name(), out.name(), flat.name())) + 6
+for i, n in enumerate((cut, out, flat)): n.setPosition(hou.Vector2(x0, -i * 1.1)); n.setColor(hou.Color((0.95, 0.75, 0.45))); box.addItem(n)
+box.fitAroundContents()
+result = (len(net.children()), 3)

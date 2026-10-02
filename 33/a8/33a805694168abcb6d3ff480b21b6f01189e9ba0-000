@@ -1,0 +1,10 @@
+# 30 September 2026 : save one image per version, V001, V002, ... (N increments by one at each call, never overwritten), and note it in versions/INDEX.md.
+# Usage: python3 SaveVersion.py <image.png> "<what changed in one sentence>"      FR : une image par version, N++ a chaque appel, jamais ecrasee.
+import sys, re, shutil, datetime, pathlib
+D = pathlib.Path(__file__).resolve().parent.parent / 'versions'; D.mkdir(exist_ok=True)
+src, note = pathlib.Path(sys.argv[1]), sys.argv[2] if len(sys.argv) > 2 else ''
+n = max([int(m.group(1)) for f in D.glob('V*.png') if (m := re.match(r'V(\d+)', f.name))] + [0]) + 1
+dst = D / f'V{n:03d}{src.suffix}'; shutil.copy2(src, dst)
+now = datetime.datetime.now(); stamp = f'{now.day} {now.strftime("%B %Y, %H:%M")}'
+with open(D / 'INDEX.md', 'a') as f: f.write(f'- V{n:03d} ({stamp}) : {note}  [{src.name}]\n')
+print(dst)

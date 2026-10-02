@@ -1,0 +1,53 @@
+# 30 September 2026 : read the PATTERN rules straight from the final render 01a-julien-delannoy-10-left.png: tan line mask, lattice (tile size, offsets) by correlation with the circle model in
+# which every tile may carry any of its five circles (four corners, inscribed), then the presence matrix (tile x circle). FR : lit la regle du motif directement dans le rendu final.
+import numpy as np, json
+from PIL import Image
+from scipy import ndimage as ndi
+im = np.asarray(Image.open('01a-julien-delannoy-10-left.png').convert('RGB')).astype(np.float32) / 255
+H, W = im.shape[:2]
+r, g, b = im[..., 0], im[..., 1], im[..., 2]
+tan = ((r - g) > 0.03) & ((r - b) > 0.12) & (r > 0.25)                       # tan / ochre lines: red above green above blue
+tan = ndi.binary_opening(tan, iterations=1)
+print('tan fraction', tan.mean().round(4))
+Image.fromarray((tan * 255).astype(np.uint8)).save('ref-maps/01a_tan_mask.png')
+yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
+def lattice(T, ox, oy):
+    tx = (xx - ox) / T; ty = (yy - oy) / T
+    ci = np.floor(tx).astype(int); ri = np.floor(ty).astype(int); return ci, ri, tx - ci, ty - ri
+def circ_mask(ci, ri, u, v, R, circles, width=0.012):
+    m = np.zeros(u.shape, bool)
+    for cu, cv in circles:
+        m |= np.abs(np.hypot(u - cu, v - cv) - R) < width
+    return m
+# full model: all five circles in every tile + joints
+all5 = [(0, 0), (1, 0), (0, 1), (1, 1), (0.5, 0.5)]
+best = (-1,)
+for T in np.arange(474, 486, 2.0):
+    for ox in np.arange(-10, 11, 2.0):
+        for oy in np.arange(-10, 11, 2.0):
+            ci, ri, u, v = lattice(T, ox, oy)
+            e = np.minimum(np.minimum(u, 1 - u), np.minimum(v, 1 - v))
+            m = circ_mask(ci, ri, u, v, 0.498, all5[:4]) | (e < 0.006)
+            c = (m & tan).sum() / max(tan.sum(), 1)              # recall of the tan pixels by corner circles + joints
+            c -= 0.3 * (m & ~tan).sum() / m.sum()
+            if c > best[0]: best = (c, T, ox, oy)
+print('lattice', best)
+_, T, ox, oy = best
+ci, ri, u, v = lattice(T, ox, oy)
+out = {'T': float(T), 'ox': float(ox), 'oy': float(oy)}
+names = {'TL': (0, 0), 'TR': (1, 0), 'BL': (0, 1), 'BR': (1, 1), 'C': (0.5, 0.5)}
+mat = {}
+print('presence = fraction of each circle (inside its tile, away from edges) that is tan; rows r0..r3, cols c0..c3')
+for rr in range(4):
+    line = []
+    for cc in range(4):
+        m0 = (ci == cc) & (ri == rr); d = {}
+        e = np.minimum(np.minimum(u, 1 - u), np.minimum(v, 1 - v))
+        for k, (cu, cv) in names.items():
+            s = m0 & (np.abs(np.hypot(u - cu, v - cv) - 0.498) < 0.008) & (e > 0.03)
+            d[k] = float(tan[s].mean()) if s.sum() > 400 else -1.0
+        mat[f'r{rr}c{cc}'] = d
+        line.append(' '.join('%s:%.2f' % (k, v) for k, v in d.items()))
+    print('r%d  ' % rr + ' | '.join(line))
+out['presence'] = mat
+json.dump(out, open('ref-maps/01a_fit.json', 'w'), indent=1)

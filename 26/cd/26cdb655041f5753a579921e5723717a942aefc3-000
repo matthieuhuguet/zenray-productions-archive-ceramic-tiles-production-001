@@ -1,0 +1,71 @@
+# 30 September 2026 : the HDA interface of the ceramic green material. At most 8 parameters per category (Pattern, Colour, Render), the most important ones first; everything else stays inside the graph.
+# The parameters live as spare parameters on the Copernicus network node /obj/CeramicGreen_Height; every wrangle reads them with chf("/obj/CeramicGreen_Height/<name>"), so a change is made in ONE place and
+# propagates everywhere (HDA rule of ~/.claude/rules/ParametricHda1.md). Defaults reproduce the current measured result exactly. Rebuilding the graph keeps the values that were tweaked.
+# FR : interface HDA du materiau, 8 parametres maximum par categorie, portes par le noeud reseau Copernicus ; chaque wrangle les lit avec chf() ; les valeurs modifiees survivent a une reconstruction.
+NETPATH = '/obj/CeramicGreen_Height'
+SPEC = [   # (name, label, default, min, max, category, what it does)
+    ('layout_source', 'Layout 0 = render 01a, 1 = strip', 0.0, 0.0, 1.0, 'PATTERN', 'which arc layout is drawn: 0 = the layout read from the final render 01a, 1 = the strip of sheet 08'),
+    ('ring_radius', 'Ring radius (tile)', 0.498, 0.46, 0.54, 'PATTERN', 'radius of every arc and of the small circles, in tile units'),
+    ('arc_width', 'Arc width', 1.1, 0.3, 3.0, 'PATTERN', 'scales the width of the big arc ridge and wall'),
+    ('small_circle_width', 'Small circle width', 0.55, 0.15, 1.5, 'PATTERN', 'width of the inscribed circles relative to the arcs (thinner in px)'),
+    ('wall_height', 'Wall height', 0.55, 0.3, 1.8, 'PATTERN', 'height of the ridge above the dish floor'),
+    ('joint_width', 'Joint width', 1.0, 0.3, 4.0, 'PATTERN', 'width of the groove between two tiles'),
+    ('dish_depth', 'Dish depth', 0.05, 0.0, 0.25, 'PATTERN', 'how far the dish-coloured regions of the two colour layout are lowered below the other regions'),
+    ('movement_amount', 'Movement amount', 1.0, 0.0, 4.0, 'PATTERN', 'strength of the soft undulation of the ceramic (its own normal)'),
+    ('glaze_lift', 'Glaze brightness', 1.0, -1.0, 3.0, 'COLOUR', 'lifts the glaze far from the lines; 1 = measured'),
+    ('line_strength', 'Line strength', 1.0, 0.0, 2.0, 'COLOUR', 'contrast of the tan lines against the glaze'),
+    ('line_width', 'Line width', 0.62, 0.3, 3.0, 'COLOUR', 'width of the tan arcs and small circles'),
+    ('fringe_gain', 'Contour fringe gain', 1.0, 0.0, 3.0, 'COLOUR', 'strength of the 64 diffuse layers around the arcs (rust speckles, warm halo, cool shadow, cream hairlines)'),
+    ('cloud_gain', 'Cloud gain', 1.0, 0.0, 3.0, 'COLOUR', 'large soft colour clouds'),
+    ('mottle_gain', 'Mottling gain', 1.0, 0.0, 3.0, 'COLOUR', 'medium and fine mottling / grain of the glaze'),
+    ('hue_variation', 'Hue drift', 1.0, 0.0, 3.0, 'COLOUR', 'how far the colour drifts away from the main green direction'),
+    ('glaze_hue', 'Glaze hue (degrees)', 0.0, -180.0, 180.0, 'COLOUR', 'rotates the hue of the glaze away from the lines with the SAME luminance and saturation (Y is kept exactly); 0 = the measured green. The basecolor map is re-exported a moment after the last change.'),
+    ('key_exposure', 'Key light exposure', 5.0, 0.0, 6.0, 'RENDER', 'grazing key light'),
+    ('dome_exposure', 'Dome exposure', -4.5, -6.0, 1.0, 'RENDER', 'ambient light, lower = deeper shadows'),
+    ('fill_exposure', 'Fill exposure', -2.0, -4.0, 3.0, 'RENDER', 'weak fill from the opposite side'),
+    ('relief_depth', 'Relief depth (m)', 0.10, 0.0, 0.3, 'RENDER', 'displacement scale of the height'),
+    ('reflection_gain', 'Reflection gain', 1.0, 0.0, 1.5, 'RENDER', 'strength of the clear coat reflections (coat weight): lower = dimmer glints'),
+    ('reflection_blur', 'Reflection softness', 0.0, 0.0, 0.5, 'RENDER', 'added to the roughness map by the 64 reflection layers: higher = softer, wider, dimmer glints'),
+    ('glaze_tint', 'Glaze tint', 0.45, 0.3, 2.0, 'RENDER', 'multiplier of the shader base colour, overall brightness of the render'),
+    ('spec_exposure', 'Reflection light exposure', 3.0, -2.0, 6.0, 'RENDER', 'soft specular only light (cg_spec, no diffuse): how bright the reflections are; the key light has no specular'),   # 30 September 2026 : diffuse and specular are now two lights, so the reflections no longer saturate the relief
+]
+# 30 September 2026 : the glaze hue is baked into the basecolor map, so a change must re-export that map. The callback is DEBOUNCED: it arms one event loop tick that exports 0.8 s after the LAST change
+# (a slider drag fires the callback many times; one export takes about 9 s and would freeze the UI if it ran at every tick). FR : le hue est cuit dans la carte, l'export se fait 0,8 s apres le dernier changement.
+HUE_CALLBACK = """import sys, time, hou
+m = sys.modules.get('zr_hue_debounce')
+if m is None:
+    import types
+    m = types.ModuleType('zr_hue_debounce'); sys.modules['zr_hue_debounce'] = m; m.t = 0.0; m.armed = False
+    def tick():
+        if time.time() - m.t > 0.8:
+            hou.ui.removeEventLoopCallback(tick); m.armed = False
+            n = hou.node('/obj/CeramicGreen_Height'); n.node('U4_export__basecolor_v6').parm('execute').pressButton()
+            sh = hou.node('/mat/CeramicGreen_Material')
+            if sh is not None: sh.parm('basecolor_useTexture').set(0); sh.parm('basecolor_useTexture').set(1)      # re-import the texture in Solaris / Karma
+    m.tick = tick
+m.t = time.time()
+if not m.armed:
+    m.armed = True; hou.ui.addEventLoopCallback(m.tick)
+"""
+CALLBACKS = {'glaze_hue': HUE_CALLBACK}
+def CH(name): return 'chf("%s/%s")' % (NETPATH, name)
+def make_controls(net):
+    import hou
+    old = {p.name(): p.eval() for p in net.parms()}
+    ptg = net.parmTemplateGroup()
+    for cat in ('PATTERN', 'COLOUR', 'RENDER'):
+        folder = ptg.findFolder(['HDA ' + cat.title()])
+        if folder is not None: ptg.remove(folder)                         # rebuilt below from SPEC, tweaked values are restored afterwards
+    for cat in ('PATTERN', 'COLOUR', 'RENDER'):
+        rows = [(n, l, d, lo, hi, w) for n, l, d, lo, hi, c, w in SPEC if c == cat]
+        assert len(rows) <= 8, cat + ' has more than 8 parameters'       # the HDA rule: 8 per category at most
+        f = hou.FolderParmTemplate('hda_' + cat.lower(), 'HDA ' + cat.title(), folder_type=hou.folderType.Simple)
+        for n, l, d, lo, hi, w in rows:
+            pt = hou.FloatParmTemplate(n, l, 1, default_value=(d,), min=lo, max=hi, help=w)
+            if n in CALLBACKS: pt.setScriptCallback(CALLBACKS[n]); pt.setScriptCallbackLanguage(hou.scriptLanguage.Python)
+            f.addParmTemplate(pt)
+        ptg.append(f)
+    net.setParmTemplateGroup(ptg)
+    for n, *_ in SPEC:
+        if n in old and net.parm(n) is not None: net.parm(n).set(old[n])
+    return [n for n, *_ in SPEC]

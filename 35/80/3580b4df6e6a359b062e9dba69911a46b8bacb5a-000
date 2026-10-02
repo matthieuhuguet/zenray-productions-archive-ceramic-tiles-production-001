@@ -1,0 +1,95 @@
+# 1 October 2026 : V13 = V12 + the RAISED RIDGE. Matthieu (1 October 2026): the golden lines must read as a clay ridge standing above the glazed dishes (the dishes are dug between the tile texture and the line), and the line must be TERRACOTTA, slightly glossy,
+# through a roughness mask. Four insertions, each a single wrangle that computes the layout distances itself (no second input), rewired generically (every consumer of the source node is moved to the new node):
+#   N9  normal : a 2 px BEVEL on both edges of the band, tilt = outward gradient of the distance to the arch, so the key light catches one edge and leaves the other in shade (the band interior stays flat)
+#   ZK  rough  : terracotta roughness on the band and on the joints (a mask), the glaze keeps its own map
+#   RK  reflect: weaker coat weight on the same mask (terracotta is slightly glossy, not a mirror)
+#   ZL  colour : a thin contact shadow of the glaze on both sides of the ridge (occlusion), pure albedo darkening
+# FR : V13 = V12 + liseré en relief : biseau de 2 px dans la normale, roughness terre cuite par masque, coat plus faible sur la bande, ombre de contact.
+import hou, runpy
+B = '/Users/zenray/.claude/tmp/tmp-houdini-september-2026/tmp-materials-substance-copernicus-30-09-2026/'
+G12 = runpy.run_path(B + 'Scripts/BuildCeramicGreenCutV12.py')
+net, G, UV, P12 = G12['net'], G12['G'], G12['UV'], G12['P12']
+node, vex, CH = G['node'], G['vex'], G['CH']
+HW = P12['band_half_px']
+P13 = {
+    'bevel_center_px': HW + 0.2, 'bevel_sigma_px': 1.1, 'bevel_mag': 0.85, 'bevel_mix': 0.95,   # tilt (sine of the angle) of the bevel and how much it replaces the flat band normal
+    'joint_bevel_px': 3.4, 'joint_bevel_mag': 0.55,
+    'rough_band': 0.50, 'rough_edge_px': 0.9,       # terracotta roughness (the glaze map is 0.04 to 0.2)
+    'coat_band': 0.30,                              # coat weight multiplier on the band
+    'contact_dark': 0.20, 'contact_px': 5.0,        # contact shadow beside the ridge: darkening and decay length in pixels
+    'grad_eps_px': 1.0,
+}
+# the function must be declared before its use: move it ahead of the main body
+PRE_FN = '''float dist_at(int LT[]; int LC[]; int tc; int tr; float uu; float vv; float RAD; int MODE) { float a; float b; float s; lay(LT, LC, tc, tr, uu, vv, RAD, MODE, a, b, s); return min(abs(a), abs(b)); }
+'''
+HEAD = G['LAYOUT_VEX'] + UV + PRE_FN + '''float dA; float dB; float dsh;
+float RAD = %s; int MODE = int(%s + 0.5);
+lay(LT01A, LC01A, tc, tr, u, v, RAD, MODE, dA, dB, dsh);
+float PXL = 1.0 / %f;
+float dpx = min(abs(dA), abs(dB)) / PXL;
+float epx = min(min(u, 1.0 - u), min(v, 1.0 - v)) / PXL;
+float band = 1.0 - smooth(%f - 0.3, %f + 0.9, dpx);
+float jband = 1.0 - smooth(2.4, 4.0, epx);
+float mask = max(band, jband);
+''' % (CH('ring_radius'), CH('layout_source'), P12['tile_px'], HW, HW)
+
+def insert_after(src, new):
+    for dst in src.outputs():
+        if dst == new: continue
+        for i, inp in enumerate(dst.inputs()):
+            if inp == src: dst.setInput(i, new)
+    new.setInput(0, src)
+
+# --- N9 normal bevel
+n8 = net.node('N8_normal__flat_cut_band_and_joint')
+nrm_code = HEAD + '''float e = PXL * %f;
+float dux = dist_at(LT01A, LC01A, tc, tr, u + e, v, RAD, MODE) - dist_at(LT01A, LC01A, tc, tr, u - e, v, RAD, MODE);
+float dvy = dist_at(LT01A, LC01A, tc, tr, u, v + e, RAD, MODE) - dist_at(LT01A, LC01A, tc, tr, u, v - e, RAD, MODE);
+vector2 g = set(dux, dvy); float gl = length(g); if (gl > 1e-6) g /= gl; else g = set(0.0, 0.0);
+vector4 n0 = p@C;
+vector2 t = set(n0.x - 0.5, n0.y - 0.5) * 2.0;
+float wb = exp(-pow((dpx - %f) / %f, 2.0)) * %f;          // bevel of the band, both edges
+t = lerp(t, g * %f, clamp(wb, 0.0, 1.0));
+// joint: a short outward bevel on both sides of the groove (the gradient of the distance to the tile edge points away from the joint)
+float eu = (u < 0.5) ? 1.0 : -1.0; float ev = (v < 0.5) ? 1.0 : -1.0;
+vector2 gj = (min(u, 1.0 - u) < min(v, 1.0 - v)) ? set(eu, 0.0) : set(0.0, ev);   // away from the joint
+float wj = exp(-pow((epx - %f) / 1.2, 2.0));
+t = lerp(t, gj * %f, clamp(wj * %f, 0.0, 1.0));
+float z = sqrt(max(1.0 - dot(t, t), 0.0));
+p@C = set(t.x * 0.5 + 0.5, t.y * 0.5 + 0.5, z * 0.5 + 0.5, n0.w);
+''' % (P13['grad_eps_px'], P13['bevel_center_px'], P13['bevel_sigma_px'], P13['bevel_mix'], P13['bevel_mag'], P13['joint_bevel_px'], P13['joint_bevel_mag'], P13['bevel_mix'])
+n9 = vex(net, 'N9_normal__ridge_bevel_on_both_edges', [n8], nrm_code); insert_after(n8, n9)
+
+# --- ZK roughness mask (terracotta)
+rc = net.node('RC_ROUGHNESS__ceramic_green_v6')
+# 1 October 2026: the roughness map is a MONO layer (exported as an 'L' png). A vector4 wrangle read it as (1,1,1,value) and wrote RGB 255, which turned the whole map white. The wrangle is declared Mono (type1 = float) and uses f@C.
+# FR : la roughness est une couche MONO ; un wrangle vector4 la lisait de travers : wrangle declare mono, f@C.
+rough_code = HEAD + '''float k0 = f@C;
+float k = lerp(k0, %f, clamp(mask, 0.0, 1.0));
+f@C = k;
+''' % P13['rough_band']
+zk = vex(net, 'ZK_rough__terracotta_roughness_mask_on_band_and_joints', [rc], rough_code); zk.parm('type1').set('float'); insert_after(rc, zk)
+
+# --- RK coat weight on the band
+rf = net.node('R4_REFLECT__ceramic_green_v10')
+refl_code = HEAD + '''float k0 = p@C.x;
+float k = k0 * lerp(1.0, %f, clamp(mask, 0.0, 1.0));
+p@C = set(k, k, k, p@C.w);
+''' % P13['coat_band']
+rk = vex(net, 'RK_reflect__terracotta_coat_weight_on_band_and_joints', [rf], refl_code); insert_after(rf, rk)
+
+# --- ZL contact shadow in the albedo (both sides of the ridge)
+zj = net.node('ZJ_BASECOLOR__ceramic_green_clean_cut')
+col_code = HEAD + '''vector c = set(p@C.x, p@C.y, p@C.z);
+float outside = smooth(%f - 0.3, %f + 0.9, dpx);
+float shadow = %f * exp(-max(dpx - %f, 0.0) / %f) * outside * (1.0 - smooth(14.0, 24.0, dpx));      // compact support: exactly zero beyond 24 px, so nothing changes away from the line
+c *= (1.0 - shadow);
+p@C = set(c.x, c.y, c.z, p@C.w);
+''' % (HW, HW, P13['contact_dark'], HW, P13['contact_px'])
+zl = vex(net, 'ZL_albedo__contact_shadow_beside_the_ridge', [zj], col_code); insert_after(zj, zl)
+
+box = net.createNetworkBox(); box.setComment('AF  RAISED RIDGE: bevel normal, terracotta roughness and coat masks, contact shadow'); box.setColor(hou.Color((0.80, 0.55, 0.35)))
+x0 = max(n.position().x() for n in net.children() if n.name() not in (n9.name(), zk.name(), rk.name(), zl.name())) + 6
+for i, n in enumerate((n9, zk, rk, zl)): n.setPosition(hou.Vector2(x0, -i * 1.1)); n.setColor(hou.Color((0.80, 0.55, 0.35))); box.addItem(n)
+box.fitAroundContents()
+result = (len(net.children()), 4)

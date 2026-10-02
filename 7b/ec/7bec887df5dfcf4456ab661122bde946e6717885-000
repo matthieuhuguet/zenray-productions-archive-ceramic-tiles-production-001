@@ -1,0 +1,26 @@
+# 1 October 2026 : no regression gate. Compares a NEW frame to a BASELINE frame (same resolution, same seed => identical pixels when nothing changed) and reports, outside the zone of the lines, the mean absolute difference and the fraction of pixels that moved,
+# then the global statistics against 01a. The zone of the lines = within ZONE_PX of an arch or joint, taken from the BASELINE basecolor texture (tan, rust, cream). Usage: RegressionCheck.py <baseline.png> <new.png> [zone_px]
+# FR : garde-fou de non regression : zero difference attendue hors de la zone des liseres.
+import sys, numpy as np
+from PIL import Image
+from scipy import ndimage as ndi
+B = '/Users/zenray/.claude/tmp/tmp-houdini-september-2026/tmp-materials-substance-copernicus-30-09-2026/'
+base = np.asarray(Image.open(B + sys.argv[1]).convert('RGB'), float) / 255
+new = np.asarray(Image.open(B + sys.argv[2]).convert('RGB'), float) / 255
+zone_px = float(sys.argv[3]) if len(sys.argv) > 3 else 22
+assert base.shape == new.shape, (base.shape, new.shape)
+H = base.shape[0]
+tex = np.asarray(Image.open(B + 'render/CeramicGreen_V6_basecolor.png').convert('RGB').resize((H, H), Image.NEAREST), float) / 255
+line = (tex[..., 0] > 1.12 * tex[..., 1]) & (tex[..., 0] > 1.3 * tex[..., 2]) & (tex[..., 0] > 0.30)
+line = ndi.binary_opening(line, iterations=1)      # drop isolated sparkles and single rust dots
+line = ndi.binary_dilation(line, iterations=int(round(zone_px * H / 1920)))
+# joints: within 10 px of a tile edge (the joints are brown/black, they are not all picked up by the tan test)
+yy, xx = np.mgrid[0:H, 0:H]; tp = H / 4.0
+line |= (np.minimum(xx % tp, tp - xx % tp) <= 10 * H / 1920) | (np.minimum(yy % tp, tp - yy % tp) <= 10 * H / 1920)
+out = ~line
+d = np.abs(new - base).mean(2)
+print(f'outside the line zone: {out.mean():.3f} of the image; mean |diff| {d[out].mean():.5f}, pixels moved by more than 2/255: {(d[out] > 2/255).mean():.4f}, p99.9 diff {np.percentile(d[out], 99.9):.4f}')
+print(f'inside the line zone : mean |diff| {d[line].mean():.5f}')
+L = lambda x: (x * [0.2126, 0.7152, 0.0722]).sum(2)
+for nm, x in (('baseline', base), ('new', new)):
+    l = L(x); print(f'{nm:9s} mean {x.mean((0,1)).round(3)} p5 {np.percentile(l,5):.3f} p50 {np.percentile(l,50):.3f} p95 {np.percentile(l,95):.3f} p99.9 {np.percentile(l,99.9):.3f}')

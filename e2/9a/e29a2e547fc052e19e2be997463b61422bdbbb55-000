@@ -1,0 +1,171 @@
+# 30 September 2026 : ceramic green tiles, HEIGHT only, version 4, built the way the GIF julien-delannoy-pattern.gif builds it.
+# Recipe read on the gif (30 September 2026): a ring, three quarter discs at the corners (the fourth is fainter), a distance gradient
+# glowing around each arc, a pyramid gradient of the tile (distance to its edge), everything ADDED, then repeated 2 x 2.
+# The halo and base curves are not guessed: they come from a least-squares fit of the REAL height map of sheet 08 (Scripts/FitHeightFromRef.py,
+# ref-maps/fit_height.json, correlation 0.93). The grey soft column of sheet 08 is the height; the white sharp one is the AO (they were
+# swapped until 30 September 2026, 13:05).
+# FR : height V4, construite comme le GIF (halos additionnes autour des arcs) avec des courbes AJUSTEES sur la vraie height.
+import hou, json
+
+NET = '/obj/CeramicGreen_Height'
+OUT_DIR = '/Users/zenray/.claude/tmp/tmp-houdini-september-2026/tmp-materials-substance-copernicus-30-09-2026'
+FIT = json.load(open(OUT_DIR + '/ref-maps/fit_height_max.json'))       # the MAXIMUM model, corr 0.943 (the additive one gave 0.930), 30 September 2026
+P = {
+    'res': 1920, 'tiles': 4, 'uv_span': 1.0, 'v_up': True,
+    'radius': FIT['radius'],                   # 0.4975 tile, measured on the real height (30 September 2026)
+    'weak_parity': 0,                          # tile (row + col) % 2 == weak_parity  ->  TL is the weak arc, otherwise BR (30 September 2026)
+    # the last knot (0.75) carries the far field of every arc and sets the floor of the height: it is KEPT (30 September 2026, 13:15)
+    'strong_keys': list(zip(FIT['halo_knots'], FIT['strong'])),
+    'weak_keys': list(zip(FIT['halo_knots'], FIT['weak'])),
+    'joint_keys': list(zip(FIT['edge_knots'], FIT['edge_values'])), 'joint_range': 0.5,     # joint groove only, 30 September 2026
+    'radial_keys': list(zip(FIT['radial_knots'], FIT['radial_values'])), 'radial_range': 0.8,   # smooth base, round contours, 30 September 2026
+    'normal_scale': 0.06,
+    'halo_range': 1.5,                        # farthest possible distance to an arc is about 0.92 tile; the curve holds its last value out to here
+}
+CORNERS = ['TL', 'TR', 'BL', 'BR']
+
+
+def ramp(points, range_):
+    basis = getattr(hou.rampBasis, 'MonotoneCubic', hou.rampBasis.Linear)     # smooth curves: linear segments gave visible rings in the normal (30 September 2026)
+    return hou.Ramp([basis] * len(points), [x / range_ for x, _ in points], [y for _, y in points])
+
+
+def node(net, kind, name, inputs=(), **parms):
+    n = net.node(name) or net.createNode(kind, name)
+    for i, src in enumerate(inputs):
+        if src is not None:
+            n.setInput(i, src[0] if isinstance(src, tuple) else src, src[1] if isinstance(src, tuple) else 0)
+    for k, v in parms.items():
+        n.parm(k).set(v)
+    return n
+
+
+def const(net, name, like, value):
+    return node(net, 'remap', name, [like], inputmin=0, inputmax=1, outputmin=value, outputmax=value, useramp=0)
+
+
+def curve(net, name, src, keys, range_, out_min=0.0, out_max=1.0):
+    # 30 September 2026 : a remap ramp must span the WHOLE input range; hold the last value out to range_ (FR : tenir la derniere valeur).
+    keys = list(keys)
+    if keys[-1][0] < range_: keys.append((range_, keys[-1][1]))
+    n = node(net, 'remap', name, [src], inputmin=0, inputmax=range_, outputmin=out_min, outputmax=out_max, useramp=1)
+    n.parm('ramp').set(ramp(keys, range_))
+    return n
+
+
+TABLE_VEX = '''// 30 September 2026 : per corner, 1 = full arc and 0 = the fainter fourth arc. Measured on the real height: even rows keep TL faint,
+// odd rows keep BR faint; the checkerboard runs on (row + col). FR : 1 = arc plein, 0 = quatrieme arc faible.
+int n = %(tiles)d;
+int col = clamp(int((@P.x * 0.5 + 0.5) * n), 0, n - 1);
+int row = clamp(int((0.5 - @P.y * 0.5) * n), 0, n - 1);      // P.y = +1 is the TOP of the canvas, row 0 is the top row
+int tlweak = ((row + col) %% 2 == %(parity)d) ? 1 : 0;
+p@C = set(tlweak ? 0.0 : 1.0, 1.0, 1.0, tlweak ? 1.0 : 0.0);
+'''
+
+
+def build():
+    net = hou.node(NET)
+    for c in net.children():
+        c.destroy()
+    net.parm('setres').set(1); net.parm('res1').set(P['res']); net.parm('res2').set(P['res'])
+    S = {}
+    def reg(sec, *nodes):
+        S.setdefault(sec, []).extend(n.name() for n in nodes)
+    span = P['uv_span']
+
+    # A  LAYOUT -------------------------------------------------------------------------------------------------
+    lay = node(net, 'tilepattern', 'A1_layout__tile_grid_4x4', patterntype=0, patternmode=1, stackbond_rows=P['tiles'], stackbond_cols=P['tiles'])
+    lay.parm('stackbond_tilewidth').set(2.0 / P['tiles']); lay.parm('stackbond_tileheight').set(2.0 / P['tiles'])
+    u = node(net, 'channelextract', 'A2_layout__tile_u', [(lay, 2)], channel=0)
+    v = node(net, 'channelextract', 'A3_layout__tile_v', [(lay, 2)], channel=1)
+    reg('A  LAYOUT  the tile grid', lay, u, v)
+
+    # B  WHICH ARC IS THE FAINT ONE -----------------------------------------------------------------------------
+    tbl = node(net, 'wrangle', 'B1_arcs__full_or_faint_per_corner', [(lay, 0)])
+    tbl.parm('vexsnippet').set(TABLE_VEX % {'tiles': P['tiles'], 'parity': P['weak_parity']})
+    full = {c: node(net, 'channelextract', f'B{2 + i}_arcs__is_full_{c}', [tbl], channel=i) for i, c in enumerate(CORNERS)}
+    rad = const(net, 'B6_arcs__radius_constant', u, P['radius'])
+    reg('B  ARCS  full or faint, per corner', tbl, *full.values(), rad)
+
+    # C  ONE HALO CHAIN PER CORNER: distance to the arc, glow, full or faint ------------------------------------
+    halo = {}
+    for i, c in enumerate(CORNERS):
+        left, top = c[1] == 'L', c[0] == 'T'
+        du = node(net, 'remap', f'C{i}1_{c}__offset_u_from_corner', [u], inputmin=-span, inputmax=span,
+                  outputmin=0 if left else 1, outputmax=1 if left else 0, useramp=0)
+        toward_top = top == P['v_up']
+        dv = node(net, 'remap', f'C{i}2_{c}__offset_v_from_corner', [v], inputmin=-span, inputmax=span,
+                  outputmin=1 if toward_top else 0, outputmax=0 if toward_top else 1, useramp=0)
+        d = node(net, 'blend', f'C{i}3_{c}__distance_to_corner', [du, dv], mode=8)              # hypot
+        a = node(net, 'blend', f'C{i}4_{c}__distance_to_arc', [d, rad], mode=9)                 # |d - radius|
+        gs = curve(net, f'C{i}5_{c}__glow_of_a_full_arc', a, P['strong_keys'], P['halo_range'])
+        gw = curve(net, f'C{i}6_{c}__glow_of_the_faint_arc', a, P['weak_keys'], P['halo_range'])
+        gs_m = node(net, 'blend', f'C{i}7_{c}__full_glow_if_full', [gs, full[c]], mode=5)
+        inv = node(net, 'remap', f'C{i}8_{c}__is_faint', [full[c]], inputmin=0, inputmax=1, outputmin=1, outputmax=0, useramp=0)
+        gw_m = node(net, 'blend', f'C{i}9_{c}__faint_glow_if_faint', [gw, inv], mode=5)
+        both = node(net, 'blend', f'C{i}A_{c}__glow_of_this_corner', [gs_m, gw_m], mode=3)
+        halo[c] = both
+        reg(f'C  CORNER {c}  its own glow', du, dv, d, a, gs, gw, gs_m, inv, gw_m, both)
+
+    # D  COMBINE THE FOUR GLOWS BY MAXIMUM -----------------------------------------------------------
+    # 30 September 2026 : the real height keeps the height of ONE arc where two arcs cross, so the corners are combined by MAXIMUM, not by sum.
+    s1 = node(net, 'blend', 'D1_glow__highest_of_TL_and_TR', [halo['TL'], halo['TR']], mode=12)
+    s2 = node(net, 'blend', 'D2_glow__highest_of_BL_and_BR', [halo['BL'], halo['BR']], mode=12)
+    glow = node(net, 'blend', 'D3_glow__highest_of_the_four_corners', [s1, s2], mode=12)
+    reg('D  GLOW  the four halos, highest wins', s1, s2, glow)
+
+    # E  THE TILE BASE: smooth radial gradient from the tile centre, plus the joint groove --------------------------------------------
+    eu = curve(net, 'E1_base__edge_distance_from_u', u, [(0.0, 0.0), (0.5, 0.5), (1.0, 0.0)], 1.0)
+    eu.parm('inputmin').set(-span); eu.parm('inputmax').set(span)
+    ev = curve(net, 'E2_base__edge_distance_from_v', v, [(0.0, 0.0), (0.5, 0.5), (1.0, 0.0)], 1.0)
+    ev.parm('inputmin').set(-span); ev.parm('inputmax').set(span)
+    edge = node(net, 'blend', 'E3_base__distance_to_tile_edge', [eu, ev], mode=13)
+    groove = curve(net, 'E4_joints__groove_profile', edge, P['joint_keys'], P['joint_range'])
+    ru = node(net, 'remap', 'E5_base__offset_u_from_tile_centre', [u], inputmin=-span, inputmax=span, outputmin=-0.5, outputmax=0.5, useramp=0)
+    rv = node(net, 'remap', 'E6_base__offset_v_from_tile_centre', [v], inputmin=-span, inputmax=span, outputmin=-0.5, outputmax=0.5, useramp=0)
+    rdist = node(net, 'blend', 'E7_base__distance_from_tile_centre', [ru, rv], mode=8)
+    rbase = curve(net, 'E8_base__smooth_radial_profile', rdist, P['radial_keys'], P['radial_range'])
+    with_base = node(net, 'blend', 'E9_relief__glow_plus_radial_base', [glow, rbase], mode=3)
+    height = node(net, 'blend', 'EA_relief__plus_joint_groove', [with_base, groove], mode=3)
+    reg('E  BASE  smooth radial base and joint groove', eu, ev, edge, groove, ru, rv, rdist, rbase, with_base, height)
+
+    # I  OUTPUT -------------------------------------------------------------------------------------------------
+    out = node(net, 'null', 'I1_HEIGHT__ceramic_green_v4', [height])
+    rop = node(net, 'rop_image', 'I3_export__height_png', [out])
+    rop.parm('copoutput').set(OUT_DIR + '/render/CeramicGreen_V4_height.png'); rop.parm('colorconversion').set('raw')
+    out.setDisplayFlag(True)
+    reg('I  OUTPUT  height', out, rop)
+
+    # J  NORMAL, straight from the height ------------------------------------------------------------------------------
+    # 30 September 2026, measured against the real normal strip: scale 0.06 gives the same slope spread (std 0.10 against 0.093), the
+    # 0..1 (offset) type is what the reference uses, and its green channel is INVERTED (DirectX). Slope correlation 0.81 red, 0.62 green.
+    # FR : normale tiree de la height ; echelle 0.06, type offset 0..1, canal vert inverse (convention DirectX).
+    nrm = node(net, 'heighttonormal', 'J1_normal__from_height', [out], normaltype=1, scale=P['normal_scale'])
+    flip = node(net, 'wrangle', 'J2_normal__flip_green_for_directx', [nrm])
+    flip.parm('vexsnippet').set('v@C = set(@C.x, 1.0 - @C.y, @C.z);   // 30 September 2026 : invert green')
+    nrop = node(net, 'rop_image', 'J3_export__normal_png', [flip])
+    nrop.parm('copoutput').set(OUT_DIR + '/render/CeramicGreen_V4_normal.png'); nrop.parm('colorconversion').set('raw')
+    reg('J  NORMAL  from the height, green inverted', nrm, flip, nrop)
+    return net, S
+
+
+COLORS = {'A': (0.45, 0.45, 0.50), 'B': (0.55, 0.45, 0.75), 'C': (0.35, 0.52, 0.72), 'D': (0.28, 0.40, 0.58),
+          'E': (0.78, 0.50, 0.40), 'F': (0.55, 0.55, 0.55), 'G': (0.32, 0.55, 0.40), 'H': (0.62, 0.52, 0.30), 'I': (0.25, 0.60, 0.40), 'J': (0.55, 0.45, 0.85)}
+
+
+def tidy(net, S):
+    for b in net.networkBoxes(): b.destroy()
+    x = 0.0
+    for sec, names in S.items():
+        col = COLORS[sec[0]]; per_col = 10
+        for i, nm in enumerate(names):
+            n = net.node(nm); n.setPosition(hou.Vector2(x + (i // per_col) * 3.2, -(i % per_col) * 1.1)); n.setColor(hou.Color(col))
+        box = net.createNetworkBox(); box.setComment(sec); box.setColor(hou.Color(col))
+        for nm in names: box.addItem(net.node(nm))
+        box.fitAroundContents()
+        x += 3.2 * (1 + (len(names) - 1) // per_col) + 1.4
+
+
+if True:
+    _net, _S = build()
+    tidy(_net, _S)

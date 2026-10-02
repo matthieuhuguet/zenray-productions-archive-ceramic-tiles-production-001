@@ -1,0 +1,33 @@
+# 30 September 2026 : measure the PATTERN of my maps against the final render 01a (black and white tan mask, ref-maps/01a_tan_mask2.npy) and store the result in measures/M<N>_<label>_01a/ :
+#   pattern_overlay_green_magenta_cyan.png : green = line in 01a AND in my basecolor, magenta = line in 01a that I am MISSING, cyan = line in my basecolor that 01a does not have
+#   pattern_side_by_side.png : 01a mask | my mask ; report.md with recall, precision and IoU (PASS / FAIL), and one line in measures/HISTORY.md.
+# Usage: python3 RunChecks01a.py <label> [render.png]. The basecolor must be exported with layout_source = 0 (render 01a). FR : mesure le motif contre le rendu 01a.
+import sys, re, shutil, datetime, pathlib, numpy as np
+from PIL import Image
+from scipy import ndimage as ndi
+D = pathlib.Path(__file__).resolve().parent.parent; M = D / 'measures'; M.mkdir(exist_ok=True)
+label = sys.argv[1] if len(sys.argv) > 1 else 'run'; render = sys.argv[2] if len(sys.argv) > 2 else None
+n = max([int(m.group(1)) for f in M.glob('M*') if (m := re.match(r'M(\d+)', f.name))] + [0]) + 1
+out = M / f'M{n:03d}_{label}_01a'; out.mkdir()
+ref = np.load(D / 'ref-maps/01a_tan_mask2.npy')
+im = np.asarray(Image.open(D / 'render/CeramicGreen_V6_basecolor.png').convert('RGB')).astype(np.float32) / 255
+r, g, b = im[..., 0], im[..., 1], im[..., 2]; s = r + g + b + 1e-4
+# my basecolor is an albedo (brighter than the lit render): the tan lines are the pixels clearly redder than the glaze
+mine = ((r - g) > 0.06) & (((r - b) / s) > 0.12); mine = ndi.binary_opening(mine, iterations=1)
+tol = 8                                                                      # pixels of tolerance: 01a has a little perspective and the lines are hand drawn
+refd = ndi.binary_dilation(ref, iterations=tol); mined = ndi.binary_dilation(mine, iterations=tol)
+recall = float((ref & mined).sum() / ref.sum()); precision = float((mine & refd).sum() / mine.sum()); iou = float((ref & mine).sum() / (ref | mine).sum())
+vis = np.zeros(ref.shape + (3,), np.uint8); vis[ref & mined] = [0, 255, 0]; vis[ref & ~mined] = [255, 0, 255]; vis[mine & ~refd] = [0, 255, 255]; vis[mine & refd & ~ref] = [0, 120, 60]
+Image.fromarray(vis).resize((1000, 1000), Image.NEAREST).save(out / 'pattern_overlay_green_magenta_cyan.png')
+Image.fromarray(np.concatenate([ref, np.ones((ref.shape[0], 12), bool), mine], 1).astype(np.uint8) * 255).resize((1600, 800)).save(out / 'pattern_side_by_side.png')
+checks = [('recall: 01a line pixels found in my basecolor (tolerance %d px)' % tol, recall, '> 0.85', recall > 0.85), ('precision: my line pixels that 01a has (tolerance %d px)' % tol, precision, '> 0.85', precision > 0.85), ('IoU without tolerance (strict, lines are hand drawn)', iou, '> 0.25', iou > 0.25)]
+lines = [f'# M{n:03d} {label} (pattern against the final render 01a)', f'Date: {datetime.datetime.now().day} {datetime.datetime.now().strftime("%B %Y, %H:%M")}', '', '| check | value | threshold | result |', '|---|---|---|---|']
+for name, val, thr, ok in checks: lines.append(f'| {name} | {val:.3f} | {thr} | {"PASS" if ok else "FAIL"} |')
+if render:
+    shutil.copy2(render, out / 'karma_render.png')
+    a = Image.open(D / '01a-julien-delannoy-10-left.png').convert('RGB').resize((1000, 1000)); q = Image.open(render).convert('RGB').resize((1000, 1000)); c = Image.new('RGB', (2010, 1000), (20, 20, 20)); c.paste(a, (0, 0)); c.paste(q, (1010, 0)); c.save(out / 'karma_vs_01a.png')
+lines += ['', '- pattern_overlay_green_magenta_cyan.png : green both, magenta missing in mine, cyan extra in mine', '- pattern_side_by_side.png : 01a mask | my mask']
+(out / 'report.md').write_text('\n'.join(lines) + '\n')
+with open(M / 'HISTORY.md', 'a') as f:
+    f.write(f'- M{n:03d} {label}_01a ({datetime.datetime.now().day} {datetime.datetime.now().strftime("%B %Y, %H:%M")}) : pattern vs 01a: recall {recall:.3f}, precision {precision:.3f}, IoU {iou:.3f}; {sum(1 for c in checks if c[3])}/{len(checks)} PASS\n')
+print(out); print('\n'.join(lines[3:3 + len(checks) + 2]))

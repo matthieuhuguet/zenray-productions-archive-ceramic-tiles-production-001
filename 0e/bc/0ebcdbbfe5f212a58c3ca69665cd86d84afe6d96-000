@@ -1,0 +1,16 @@
+# 30 September 2026 : one calibration step. Reads the class table and the 8x8 position ratio written by CalibrateRenderToRef.py (measures/C<N>_<label>) and multiplies the stored gains of ref-maps/colour_calib.json by the
+# measured ratio ref/mine (damped by 0.85), so that the next render is closer to 01a. The history of every step is appended to the JSON (never overwritten). Usage: python3 UpdateCalib.py C<N>_<label>
+# FR : une etape d'etalonnage : les gains sont multiplies par le rapport mesure ref/moi (amorti), historique conserve.
+import sys, json, numpy as np, pathlib
+D = pathlib.Path(__file__).resolve().parent.parent; m = D / 'measures' / sys.argv[1]
+cal = json.load(open(D / 'ref-maps/colour_calib.json')); rows = json.load(open(m / 'class_table.json')); vig_r = np.load(m / 'vignette_ratio_8x8.npy')
+bands = [(0, 3), (3, 7), (7, 12), (12, 20), (20, 32), (32, 50), (50, 80), (80, 400)]; damp = 0.85
+g = np.array(cal['band_gains'])
+for i, (lo, hi) in enumerate(bands):
+    rs = [r for r in rows if r['lo'] == lo and r['hi'] == hi]
+    if not rs: continue
+    w = np.array([r['n'] for r in rs], float); rat = (np.array([r['ratio'] for r in rs]) * w[:, None]).sum(0) / w.sum(); g[i] = g[i] * rat ** damp
+vig = np.array(cal['vig']) * vig_r ** damp
+cal['band_gains'] = g.round(4).tolist(); cal['vig'] = vig.round(4).tolist(); cal['iterations'].append({'from': sys.argv[1], 'mean_band_ratio': float(np.mean([np.mean(r['ratio']) for r in rows])), 'vig_ratio_range': [float(vig_r.min()), float(vig_r.max())]})
+json.dump(cal, open(D / 'ref-maps/colour_calib.json', 'w'), indent=1)
+print('mean band ratio before this step: %.3f' % cal['iterations'][-1]['mean_band_ratio'], ' gains now', np.round(g.mean(1), 3).tolist())

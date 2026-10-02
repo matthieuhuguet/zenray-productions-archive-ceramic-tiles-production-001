@@ -1,0 +1,209 @@
+# 30 September 2026 : ceramic green tiles, HEIGHT only, version 2, about 115 nodes, one strength per arc.
+# Measured on the render 01a (1920 x 1920, 4 x 4 tiles): circles of radius 0.508 tile centred on the tile corners; EVERY
+# tile carries four quarter arcs, but their edge strength varies continuously from 0.9 to 6.7 times the background (not
+# present or absent), so the table holds 64 measured amplitudes (render/arc_amplitudes.json, row 0 = top, TL TR BL BR).
+# FR : height seule, version 2 ; chaque arc a sa propre amplitude mesuree, le tableau binaire de la version 1 est retire.
+import hou, json
+
+NET = '/obj/CeramicGreen_Height'
+OUT_DIR = '/Users/zenray/.claude/tmp/tmp-houdini-september-2026/tmp-materials-substance-copernicus-30-09-2026'
+AMP = json.load(open(OUT_DIR + '/render/arc_amplitudes.json'))['amp']       # 64 values, 4 per tile
+P = {                                    # the parameter interface, one place (30 September 2026)
+    'res': 1920, 'tiles': 4, 'uv_span': 1.0,          # tile-local uv runs from -1 to +1, v up (measured 30 September 2026)
+    'radius': 0.508,
+    'v_up': True,
+    'crest_keys': [(0.000, 1.000), (0.008, 0.990), (0.011, 0.960), (0.0135, 0.0)], 'crest_height': 0.115,
+    'bevel_keys': [(0.000, 1.000), (0.010, 0.940), (0.030, 0.0)], 'bevel_height': 0.100,
+    'moat_keys': [(0.000, 0.0), (0.013, 0.0), (0.022, 1.000), (0.050, 0.600), (0.110, 0.0)], 'moat_depth': 0.07,
+    'rise_keys': [(0.000, 0.0), (0.060, 0.4), (0.180, 1.0), (0.500, 1.0)], 'rise_height': 0.045,
+    # flat-bottomed dish inside a disc, profile over the distance to the corner, 0 at the rim and 1 in the middle
+    'bowl_keys': [(0.000, 1.0), (0.200, 1.0), (0.350, 0.90), (0.450, 0.55), (0.490, 0.20), (0.508, 0.0)], 'bowl_depth': 0.035,
+    'field_level': 0.885,
+    'lip_keys': [(0.000, 0.0), (0.010, 0.0), (0.016, 1.0), (0.032, 0.0)], 'lip_height': 0.028,
+    'groove_keys': [(0.000, 0.000), (0.003, 0.100), (0.006, 0.600), (0.010, 1.000), (0.020, 1.000)], 'groove_range': 0.5,
+    'tile_level_jitter': 0.012, 'tile_tilt_jitter': 0.018,
+    'wave_size': 0.35, 'wave_amp': 0.012, 'grain_size': 0.006, 'grain_amp': 0.004,
+}
+CORNERS = ['TL', 'TR', 'BL', 'BR']
+
+
+def ramp(points, range_):
+    return hou.Ramp([hou.rampBasis.Linear] * len(points), [x / range_ for x, _ in points], [y for _, y in points])
+
+
+def node(net, kind, name, inputs=(), **parms):
+    n = net.node(name) or net.createNode(kind, name)
+    for i, src in enumerate(inputs):
+        if src is not None:
+            n.setInput(i, src[0] if isinstance(src, tuple) else src, src[1] if isinstance(src, tuple) else 0)
+    for k, v in parms.items():
+        n.parm(k).set(v)
+    return n
+
+
+def const(net, name, like, value):
+    return node(net, 'remap', name, [like], inputmin=0, inputmax=1, outputmin=value, outputmax=value, useramp=0)
+
+
+def curve(net, name, src, keys, range_, out_min=0.0, out_max=1.0):
+    # 30 September 2026 : a remap ramp must span the WHOLE input range, so the last value is held out to range_.
+    keys = list(keys)
+    if keys[-1][0] < range_: keys.append((range_, keys[-1][1]))
+    n = node(net, 'remap', name, [src], inputmin=0, inputmax=range_, outputmin=out_min, outputmax=out_max, useramp=1)
+    n.parm('ramp').set(ramp(keys, range_))
+    return n
+
+
+def fold(net, prefix, mode, nodes, first_id):
+    # pairwise reduction of four nodes with a blend mode, three nodes named <prefix><id>; returns (all three, last)
+    a = node(net, 'blend', f'{prefix}{first_id}', [nodes[0], nodes[1]], mode=mode)
+    b = node(net, 'blend', f'{prefix}{first_id + 1}', [nodes[2], nodes[3]], mode=mode)
+    return a, b
+
+
+TABLE_VEX = '''// 30 September 2026 : the measured strength of each of the four quarter arcs of each tile (TL, TR, BL, BR), 0.12 to 1.
+// FR : force mesuree des quatre arcs de chaque carreau ; rangee 0 = haut de l'image de reference.
+int n = %(tiles)d;
+int col = clamp(int((@P.x * 0.5 + 0.5) * n), 0, n - 1);
+int row = clamp(int((0.5 - @P.y * 0.5) * n), 0, n - 1);      // P.y = +1 is the TOP of the canvas, row 0 is the top row
+float table[] = {%(table)s};
+int k = (row * n + col) * 4;
+p@C = set(table[k], table[k + 1], table[k + 2], table[k + 3]);
+'''
+
+
+def build():
+    net = hou.node(NET)
+    for c in net.children():
+        c.destroy()
+    net.parm('setres').set(1); net.parm('res1').set(P['res']); net.parm('res2').set(P['res'])
+    S = {}
+    def reg(sec, *nodes):
+        S.setdefault(sec, []).extend(n.name() for n in nodes)
+
+    # A  LAYOUT -------------------------------------------------------------------------------------------------
+    lay = node(net, 'tilepattern', 'A1_layout__tile_grid_4x4', patterntype=0, patternmode=1,
+               stackbond_rows=P['tiles'], stackbond_cols=P['tiles'])
+    lay.parm('stackbond_tilewidth').set(2.0 / P['tiles']); lay.parm('stackbond_tileheight').set(2.0 / P['tiles'])
+    u = node(net, 'channelextract', 'A2_layout__tile_u', [(lay, 2)], channel=0)
+    v = node(net, 'channelextract', 'A3_layout__tile_v', [(lay, 2)], channel=1)
+    reg('A  LAYOUT  the tile grid', lay, u, v)
+
+    # B  STRENGTH OF THE FOUR ARCS OF EACH TILE -------------------------------------------------------------------
+    tbl = node(net, 'wrangle', 'B1_arcs__measured_strength_table', [(lay, 0)])
+    tbl.parm('vexsnippet').set(TABLE_VEX % {'tiles': P['tiles'], 'table': ', '.join(f'{x:.2f}' for x in AMP)})
+    strength = {c: node(net, 'channelextract', f'B{2 + i}_arcs__strength_{c}', [tbl], channel=i) for i, c in enumerate(CORNERS)}
+    rad = const(net, 'B6_arcs__radius_constant', u, P['radius'])
+    reg('B  ARCS  strength of each corner arc', tbl, *strength.values(), rad)
+
+    # C  ONE CHAIN PER CORNER ----------------------------------------------------------------------------------
+    raw, crest, bevel, moat, bowl = {}, {}, {}, {}, {}
+    for i, c in enumerate(CORNERS):
+        left, top = c[1] == 'L', c[0] == 'T'
+        span = P['uv_span']
+        du = node(net, 'remap', f'C{i}1_{c}__offset_u_from_corner', [u], inputmin=-span, inputmax=span,
+                  outputmin=0 if left else 1, outputmax=1 if left else 0, useramp=0)
+        toward_top = top == P['v_up']
+        dv = node(net, 'remap', f'C{i}2_{c}__offset_v_from_corner', [v], inputmin=-span, inputmax=span,
+                  outputmin=1 if toward_top else 0, outputmax=0 if toward_top else 1, useramp=0)
+        d = node(net, 'blend', f'C{i}3_{c}__distance_to_corner', [du, dv], mode=8)                # hypot
+        a = node(net, 'blend', f'C{i}4_{c}__distance_to_arc', [d, rad], mode=9)                   # |d - radius|
+        k = strength[c]
+        cp = curve(net, f'C{i}5_{c}__crest_profile', a, P['crest_keys'], 1.0, 0, P['crest_height'])
+        cs = node(net, 'blend', f'C{i}6_{c}__crest_times_strength', [cp, k], mode=5)
+        bp = curve(net, f'C{i}7_{c}__bevel_profile', a, P['bevel_keys'], 1.0, 0, P['bevel_height'])
+        bs = node(net, 'blend', f'C{i}8_{c}__bevel_times_strength', [bp, k], mode=5)
+        mp = curve(net, f'C{i}9_{c}__moat_profile', a, P['moat_keys'], 1.0, 0, P['moat_depth'])
+        ms = node(net, 'blend', f'C{i}A_{c}__moat_times_strength', [mp, k], mode=5)
+        inside = curve(net, f'C{i}B_{c}__inside_disc_mask', d, [(0.0, 1.0), (P['radius'] - 0.004, 1.0), (P['radius'], 0.0)], 1.5)
+        bwl = curve(net, f'C{i}C_{c}__bowl_profile', d, P['bowl_keys'], 1.5)
+        bin_ = node(net, 'blend', f'C{i}D_{c}__bowl_only_inside_disc', [bwl, inside], mode=5)
+        bs2 = node(net, 'blend', f'C{i}E_{c}__bowl_times_strength', [bin_, k], mode=5)
+        raw[c], crest[c], bevel[c], moat[c], bowl[c] = a, cs, bs, ms, bs2
+        reg(f'C  CORNER {c}  its own arc, crest, bevel, moat, bowl', du, dv, d, a, cp, cs, bp, bs, mp, ms, inside, bwl, bin_, bs2)
+
+    # D  COMBINE THE FOUR CORNERS ------------------------------------------------------------------------------
+    n1, n2 = fold(net, 'D', 13, [raw[c] for c in CORNERS], 1)
+    near = node(net, 'blend', 'D3_arcs__distance_to_nearest_arc_any', [n1, n2], mode=13)
+    c1, c2 = fold(net, 'D', 12, [crest[c] for c in CORNERS], 4)
+    crest_all = node(net, 'blend', 'D6_crest__strongest_of_four', [c1, c2], mode=12)
+    b1, b2 = fold(net, 'D', 12, [bevel[c] for c in CORNERS], 7)
+    bevel_all = node(net, 'blend', 'D9_bevel__strongest_of_four', [b1, b2], mode=12)
+    m1, m2 = fold(net, 'D', 12, [moat[c] for c in CORNERS], 10)
+    moat_all = node(net, 'blend', 'DC_moat__deepest_of_four', [m1, m2], mode=12)
+    reg('D  COMBINE  the four corners', n1, n2, near, c1, c2, crest_all, b1, b2, bevel_all, m1, m2, moat_all)
+
+    # E  RELIEF ------------------------------------------------------------------------------------------------
+    rise = curve(net, 'E1_field__rise_away_from_arcs', near, P['rise_keys'], 1.0, 0, P['rise_height'])
+    base = const(net, 'E2_field__base_level', u, P['field_level'])
+    field = node(net, 'blend', 'E3_field__base_plus_rise', [base, rise], mode=3)
+    p1 = node(net, 'blend', 'E4_bowls__TL_plus_TR', [bowl['TL'], bowl['TR']], mode=3)
+    p2 = node(net, 'blend', 'E5_bowls__BL_plus_BR', [bowl['BL'], bowl['BR']], mode=3)
+    psum = node(net, 'blend', 'E6_bowls__sum_of_four_discs', [p1, p2], mode=3)
+    pdep = node(net, 'remap', 'E7_bowls__scaled_to_depth', [psum], inputmin=0, inputmax=4, outputmin=0, outputmax=4 * P['bowl_depth'], useramp=0)
+    f_b = node(net, 'blend', 'E8_relief__field_minus_bowls', [field, pdep], mode=4)
+    f_bm = node(net, 'blend', 'E9_relief__minus_moat', [f_b, moat_all], mode=4)
+    ridge = node(net, 'blend', 'EA_ridge__crest_or_bevel_whichever_higher', [crest_all, bevel_all], mode=12)
+    relief = node(net, 'blend', 'EB_relief__plus_ridge', [f_bm, ridge], mode=3)
+    reg('E  RELIEF  field, bowls, moat, ridge', rise, base, field, p1, p2, psum, pdep, f_b, f_bm, ridge, relief)
+
+    # F  JOINTS -----------------------------------------------------------------------------------------------
+    eu = curve(net, 'F1_joints__edge_distance_from_u', u, [(0.0, 0.0), (0.5, 0.5), (1.0, 0.0)], 1.0)
+    eu.parm('inputmin').set(-span); eu.parm('inputmax').set(span)
+    ev = curve(net, 'F2_joints__edge_distance_from_v', v, [(0.0, 0.0), (0.5, 0.5), (1.0, 0.0)], 1.0)
+    ev.parm('inputmin').set(-span); ev.parm('inputmax').set(span)
+    edge = node(net, 'blend', 'F3_joints__distance_to_tile_edge', [eu, ev], mode=13)
+    groove = curve(net, 'F4_joints__groove_multiplier', edge, P['groove_keys'], P['groove_range'])
+    lip = curve(net, 'F6_joints__raised_lip_profile', edge, P['lip_keys'], 0.5, 0, P['lip_height'])
+    relief_lip = node(net, 'blend', 'F7_joints__relief_plus_lip', [relief, lip], mode=3)
+    grooved = node(net, 'blend', 'F5_joints__apply_groove', [relief_lip, groove], mode=5)
+    reg('F  JOINTS  lip and grooves between tiles', eu, ev, edge, groove, lip, relief_lip, grooved)
+
+    # G  EACH TILE IS A LITTLE DIFFERENT -----------------------------------------------------------------------
+    rnd = node(net, 'randommono', 'G1_tiles__random_per_tile', [(lay, 1), None, None, None, (lay, 1)])
+    lvl = node(net, 'remap', 'G2_tiles__level_offset', [rnd], inputmin=0, inputmax=1, outputmin=-P['tile_level_jitter'],
+               outputmax=P['tile_level_jitter'], useramp=0)
+    tilt = node(net, 'remap', 'G3_tiles__tilt_across_tile', [u], inputmin=-span, inputmax=span, outputmin=-P['tile_tilt_jitter'],
+                outputmax=P['tile_tilt_jitter'], useramp=0)
+    tilt_amt = node(net, 'blend', 'G4_tiles__tilt_scaled_by_random', [tilt, rnd], mode=5)
+    lvl_tilt = node(net, 'blend', 'G5_tiles__level_plus_tilt', [lvl, tilt_amt], mode=3)
+    varied = node(net, 'blend', 'G6_tiles__apply_variation', [grooved, lvl_tilt], mode=3)
+    reg('G  TILES  each tile a little different', rnd, lvl, tilt, tilt_amt, lvl_tilt, varied)
+
+    # H  HAND-MADE SURFACE -------------------------------------------------------------------------------------
+    wave = node(net, 'fractalnoise', 'H1_surface__slow_waviness', elementsize=P['wave_size'], amp=P['wave_amp'], center=0, offx=3.0)
+    grain = node(net, 'fractalnoise', 'H2_surface__fine_grain', elementsize=P['grain_size'], amp=P['grain_amp'], center=0, offx=9.0)
+    surf = node(net, 'blend', 'H3_surface__waviness_plus_grain', [wave, grain], mode=3)
+    surfaced = node(net, 'blend', 'H4_surface__apply_to_relief', [varied, surf], mode=3)
+    reg('H  SURFACE  hand-made unevenness', wave, grain, surf, surfaced)
+
+    # I  OUTPUT -------------------------------------------------------------------------------------------------
+    out = node(net, 'null', 'I1_HEIGHT__ceramic_green_v2', [surfaced])
+    nrm = node(net, 'heighttonormal', 'I2_preview__normal_from_height', [out])
+    rop = node(net, 'rop_image', 'I3_export__height_png', [out])
+    rop.parm('copoutput').set(OUT_DIR + '/render/CeramicGreen_V2_height.png'); rop.parm('colorconversion').set('raw')
+    out.setDisplayFlag(True)
+    reg('I  OUTPUT', out, nrm, rop)
+    return net, S
+
+
+COLORS = {'A': (0.45, 0.45, 0.50), 'B': (0.55, 0.45, 0.75), 'C': (0.35, 0.52, 0.72), 'D': (0.28, 0.40, 0.58),
+          'E': (0.78, 0.50, 0.40), 'F': (0.55, 0.55, 0.55), 'G': (0.32, 0.55, 0.40), 'H': (0.62, 0.52, 0.30), 'I': (0.25, 0.60, 0.40)}
+
+
+def tidy(net, S):
+    for b in net.networkBoxes(): b.destroy()
+    x = 0.0
+    for sec, names in S.items():
+        col = COLORS[sec[0]]; per_col = 8
+        for i, nm in enumerate(names):
+            n = net.node(nm); n.setPosition(hou.Vector2(x + (i // per_col) * 3.2, -(i % per_col) * 1.1)); n.setColor(hou.Color(col))
+        box = net.createNetworkBox(); box.setComment(sec); box.setColor(hou.Color(col))
+        for nm in names: box.addItem(net.node(nm))
+        box.fitAroundContents()
+        x += 3.2 * (1 + (len(names) - 1) // per_col) + 1.4
+
+
+if True:
+    _net, _S = build()
+    tidy(_net, _S)
