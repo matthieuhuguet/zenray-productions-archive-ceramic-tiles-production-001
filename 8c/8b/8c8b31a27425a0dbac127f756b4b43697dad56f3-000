@@ -1,0 +1,6 @@
+frame 301 shot 2 colour 0 camera /cameras/ad_shot2 took 275.5 s exists True
+frame 61 shot 0 colour 0 camera /cameras/ad_shot0 took 185.1 s exists True
+done 2 frames in 461 s
+frame 301 shot 2 colour 0 camera /cameras/ad_shot2 took 582.8 s exists True
+USD Render ROP terminating while blocked for rendering
+[16:18:38] Terminating with SIGTERM

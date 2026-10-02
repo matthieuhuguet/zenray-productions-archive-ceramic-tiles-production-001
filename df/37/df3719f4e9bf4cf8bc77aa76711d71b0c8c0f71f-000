@@ -1,0 +1,3 @@
+(eval):1: command not found: setsid
+01 Oct 2026 16:19:00 start shots [0, 1, 2, 3, 4, 5] workers 4 spp 32 denoise oidn res 4096 hip /Users/zenray/.claude/tmp/tmp-houdini-september-2026/tmp-materials-substance-copernicus-30-09-2026/render/_ad_final.hiplc
+01 Oct 2026 16:22:03 warm-up frame 1: frame 1 shot 0 colour 0 camera /cameras/ad_shot0 took 178.7 s exists True

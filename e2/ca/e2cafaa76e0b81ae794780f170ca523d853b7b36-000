@@ -1,0 +1,17 @@
+01 Oct 2026 19:00:26 start: frames 1 to 720, 4096 x 4096, spatial 2, temporal 4
+01 Oct 2026 19:01:21 start: frames 1 to 720, 4096 x 4096, spatial 2, temporal 4
+01 Oct 2026 19:01:22 editor ready; check: 
+01 Oct 2026 19:01:24 submit job from frame 1: OK render started {'start': 1, 'end': 720, 'res': 4096, 'spatial': 2, 'temporal': 4, 'warmup': 16, 'out': '/Users/zenray/.claude/tmp/tmp-houdini-september-2026/tmp-materials-substance-copernicus-30-09
+01 Oct 2026 19:05:14 start: frames 1 to 720, 4096 x 4096, spatial 2, temporal 4
+01 Oct 2026 19:05:15 editor ready; check: 
+01 Oct 2026 19:05:16 submit job from frame 1: OK render started {'start': 1, 'end': 720, 'res': 4096, 'spatial': 2, 'temporal': 4, 'warmup': 16, 'out': '/Users/zenray/.claude/tmp/tmp-houdini-september-2026/tmp-materials-substance-copernicus-30-09
+01 Oct 2026 19:05:29 first frame ad_0001.png median luminance 0.0401
+01 Oct 2026 19:20:44 no new frame for 6 minutes (239 done): restart from the first missing frame
+01 Oct 2026 19:20:45 editor ready; check: 
+01 Oct 2026 19:20:46 submit job from frame 240: OK render started {'start': 240, 'end': 720, 'res': 4096, 'spatial': 2, 'temporal': 4, 'warmup': 16, 'out': '/Users/zenray/.claude/tmp/tmp-houdini-september-2026/tmp-materials-substance-copernicus-30-
+01 Oct 2026 19:20:47 first frame ad_0001.png median luminance 0.0401
+01 Oct 2026 19:22:24 start: frames 1 to 720, 4096 x 4096, spatial 2, temporal 4
+01 Oct 2026 19:22:25 editor ready; check: 
+01 Oct 2026 19:22:26 submit job from frame 240: OK render started {'start': 240, 'end': 720, 'res': 4096, 'spatial': 2, 'temporal': 4, 'warmup': 16, 'out': '/Users/zenray/.claude/tmp/tmp-houdini-september-2026/tmp-materials-substance-copernicus-30-
+01 Oct 2026 19:22:26 first frame ad_0001.png median luminance 0.0401
+01 Oct 2026 19:43:57 finished: 720 of 720 frames in 21.6 min
