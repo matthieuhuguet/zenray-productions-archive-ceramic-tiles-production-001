@@ -1,0 +1,11 @@
+# M014 layout_from_01a_table (pattern against the final render 01a)
+Date: 30 September 2026, 19:56
+
+| check | value | threshold | result |
+|---|---|---|---|
+| recall: 01a line pixels found in my basecolor (tolerance 8 px) | 0.801 | > 0.85 | FAIL |
+| precision: my line pixels that 01a has (tolerance 8 px) | 0.929 | > 0.85 | PASS |
+| IoU without tolerance (strict, lines are hand drawn) | 0.228 | > 0.25 | FAIL |
+
+- pattern_overlay_green_magenta_cyan.png : green both, magenta missing in mine, cyan extra in mine
+- pattern_side_by_side.png : 01a mask | my mask
