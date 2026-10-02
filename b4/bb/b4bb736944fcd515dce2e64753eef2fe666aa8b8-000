@@ -1,0 +1,114 @@
+[
+ {
+  "variant": "default",
+  "frame": 1,
+  "median": 0.044,
+  "p99": 0.414,
+  "median_vs_ref_stops": -0.13,
+  "p99_over_median": 9.4
+ },
+ {
+  "variant": "default",
+  "frame": 61,
+  "median": 0.0974,
+  "p99": 0.624,
+  "median_vs_ref_stops": 0.16,
+  "p99_over_median": 6.4
+ },
+ {
+  "variant": "default",
+  "frame": 181,
+  "median": 0.0822,
+  "p99": 0.546,
+  "median_vs_ref_stops": 0.11,
+  "p99_over_median": 6.6
+ },
+ {
+  "variant": "default",
+  "frame": 301,
+  "median": 0.0593,
+  "p99": 0.392,
+  "median_vs_ref_stops": -0.67,
+  "p99_over_median": 6.6
+ },
+ {
+  "variant": "default",
+  "frame": 481,
+  "median": 0.0661,
+  "p99": 0.357,
+  "median_vs_ref_stops": 2.22,
+  "p99_over_median": 5.4
+ },
+ {
+  "variant": "default",
+  "frame": 521,
+  "median": 0.1162,
+  "p99": 0.524,
+  "median_vs_ref_stops": 2.16,
+  "p99_over_median": 4.5
+ },
+ {
+  "variant": "default",
+  "frame": 661,
+  "median": 0.0999,
+  "p99": 0.439,
+  "median_vs_ref_stops": 4.93,
+  "p99_over_median": 4.4
+ },
+ {
+  "variant": "glossier",
+  "frame": 1,
+  "median": 0.0422,
+  "p99": 0.55,
+  "median_vs_ref_stops": -0.19,
+  "p99_over_median": 13.0
+ },
+ {
+  "variant": "glossier",
+  "frame": 61,
+  "median": 0.104,
+  "p99": 0.624,
+  "median_vs_ref_stops": 0.26,
+  "p99_over_median": 6.0
+ },
+ {
+  "variant": "glossier",
+  "frame": 181,
+  "median": 0.088,
+  "p99": 0.574,
+  "median_vs_ref_stops": 0.21,
+  "p99_over_median": 6.5
+ },
+ {
+  "variant": "glossier",
+  "frame": 301,
+  "median": 0.0579,
+  "p99": 0.693,
+  "median_vs_ref_stops": -0.71,
+  "p99_over_median": 12.0
+ },
+ {
+  "variant": "glossier",
+  "frame": 481,
+  "median": 0.0652,
+  "p99": 0.544,
+  "median_vs_ref_stops": 2.2,
+  "p99_over_median": 8.4
+ },
+ {
+  "variant": "glossier",
+  "frame": 521,
+  "median": 0.1293,
+  "p99": 0.604,
+  "median_vs_ref_stops": 2.31,
+  "p99_over_median": 4.7
+ },
+ {
+  "variant": "glossier",
+  "frame": 661,
+  "median": 0.1087,
+  "p99": 0.531,
+  "median_vs_ref_stops": 5.05,
+  "p99_over_median": 4.9
+ }
+]

@@ -1,0 +1,42 @@
+{
+ "xpu16": {
+  "spp": 16,
+  "cpu": false,
+  "seconds": 22.6,
+  "ok": true,
+  "rms_vs_xpu256": 0.0,
+  "mean_lum_disc": 0.0966
+ },
+ "xpu64": {
+  "spp": 64,
+  "cpu": false,
+  "seconds": 22.5,
+  "ok": true,
+  "rms_vs_xpu256": 0.0,
+  "mean_lum_disc": 0.0966
+ },
+ "xpu256": {
+  "spp": 256,
+  "cpu": false,
+  "seconds": 22.5,
+  "ok": true,
+  "rms_vs_xpu256": 0.0,
+  "mean_lum_disc": 0.0966
+ },
+ "cpu16": {
+  "spp": 16,
+  "cpu": true,
+  "seconds": 21.8,
+  "ok": true,
+  "rms_vs_xpu256": 0.118,
+  "mean_lum_disc": 0.041
+ },
+ "cpu64": {
+  "spp": 64,
+  "cpu": true,
+  "seconds": 38.8,
+  "ok": true,
+  "rms_vs_xpu256": 0.1165,
+  "mean_lum_disc": 0.0453
+ }
+}

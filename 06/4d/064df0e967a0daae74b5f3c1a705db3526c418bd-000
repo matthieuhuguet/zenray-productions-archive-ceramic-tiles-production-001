@@ -1,0 +1,26 @@
+{
+ "xpu16": {
+  "spp": 16,
+  "cpu": false,
+  "seconds": 17.8,
+  "ok": true,
+  "rms_vs_xpu256": 0.0115,
+  "mean_lum_disc": 0.0963
+ },
+ "xpu64": {
+  "spp": 64,
+  "cpu": false,
+  "seconds": 23.6,
+  "ok": true,
+  "rms_vs_xpu256": 0.0053,
+  "mean_lum_disc": 0.0998
+ },
+ "xpu256": {
+  "spp": 256,
+  "cpu": false,
+  "seconds": 30.8,
+  "ok": true,
+  "rms_vs_xpu256": 0.0,
+  "mean_lum_disc": 0.0998
+ }
+}
