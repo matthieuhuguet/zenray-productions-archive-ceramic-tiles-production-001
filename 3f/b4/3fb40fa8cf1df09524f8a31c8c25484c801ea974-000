@@ -1,0 +1,43 @@
+# 1 October 2026 : regenerates the SCRIPT INDEX of SKILL/Protocol1.md (between the two SCRIPT-INDEX markers) from the first comment line of every script of the working folder, grouped by phase of the protocol. Usage: python3 Scripts/IndexScripts.py
+# Every row carries its date (rule of 30 September 2026). A script that is in no phase list goes to "Other". FR : regenere l'index des scripts du protocole.
+import os, re, glob
+B = '/Users/zenray/Create/Build/Productions/ZenRayHoudini/CeramicTiles/'
+PROTO = '/Users/zenray/.claude/skills/zenray-houdini/Protocol1.md'
+DATE = '1 October 2026'
+PHASES = [
+ ('A reference to maps (measure)', ['Fit', 'Measure', 'Compute', 'CeramicGreenLayout', 'Compare', 'Preview']),
+ ('A material builders V1 to V13', ['BuildCeramicGreenHeight', 'BuildCeramicGreenDetail', 'BuildCeramicGreenAlbedo', 'BuildCeramicGreenColour', 'BuildCeramicGreenReflect', 'BuildCeramicGreenHue', 'BuildCeramicGreenCut', 'BuildCeramicGreenRidge']),
+ ('A calibration, checks, versions', ['Calibrate', 'UpdateCalib', 'RunChecks', 'RenderStats', 'SaveVersion', 'RegressionCheck']),
+ ('A optimise (fuse, prune, tidy, patches)', ['Fuse', 'Tidy', 'HythonExport', 'PatchRidge', 'PatchBandMatch', 'ExportRefCheck']),
+ ('A plane, material, stage', ['BuildCeramicGreenPlane', 'BuildCeramicGreenStage', 'HouCycle']),
+ ('B HDA interface', ['CeramicGreenParams']),
+ ('C colour sets', ['MakeColourVariants', 'PatchColourVariant', 'PatchMaterialSwitch', 'PatchShotParms', 'ExportColourSets', 'RenderColourSets', 'MeasurePalettes']),
+ ('D ad scene', ['PatchSphere', 'PatchAdScene', 'PatchAdLights']),
+ ('E cameras and shots', ['AdShots', 'PatchAdCameras']),
+ ('F storyboard and render', ['RenderAdFrames', 'RenderFinal', 'MakeFinalHip', 'ExportMapsAtRes', 'AssembleStoryboard', 'AssembleAdPreview', 'LightCycle', 'LightCompare', 'EngineTest']),
+ ('H Unreal / Lumen', ['BuildUnrealAd', 'UeQueue', 'RunUeFinal', 'RenderUeFrames', 'CalibrateUe', 'CompareUeHou', 'ExportForUnreal', 'ExportAxisTest']),
+ ('I film, short, thumbnail, post', ['EditAd', 'AssembleAdVideo', 'MakeAdShort', 'CheckUeFrames', 'GradeFrames', 'MakeThumbMaps', 'MakeMusicCut']),
+ ('O variants 01b 02a 02b in one graph', ['Variant', 'V2Infra', 'BuildVariant', 'CookVariant', 'PreviewVariant', 'NonRegression', 'TidyVariants', 'RepointHip', 'ExportVariantMaps', 'Fit01b', 'Fit02a', 'Fit02b', 'GeomScore', 'TanMask', 'AnalyzeGrid']),
+ ('Protocol tools', ['CheckRestart', 'IndexScripts', 'BenchFinal']),
+]
+def phase(name):
+    base = name[:-3]
+    best = None
+    for ph, pre in PHASES:
+        for p in pre:
+            if base.startswith(p) and (best is None or len(p) > best[0]): best = (len(p), ph)
+    return best[1] if best else 'Other'
+rows = []
+for f in sorted(glob.glob(B + 'Scripts/*.py')):
+    n = os.path.basename(f); first = open(f).readline().strip().lstrip('#').strip()
+    dm = re.match(r'^(\d{1,2} \w+ 20\d\d)', first); rdate = dm.group(1) if dm else DATE
+    first = re.sub(r'^\d{1,2} \w+ 20\d\d( \([^)]*\))? ?:? ?', '', first); first = first.replace('|', '/')[:170]
+    rows.append((phase(n), n, first, rdate))
+order = [p for p, _ in PHASES] + ['Other']
+lines = ['| Phase | Script | Role | Date |', '|---|---|---|---|']
+for ph in order:
+    for p, n, first, rdate in rows:
+        if p == ph: lines.append('| %s | `%s` | %s | %s |' % (ph, n, first, rdate))
+txt = open(PROTO).read(); a = txt.index('<!-- SCRIPT-INDEX:START -->'); b = txt.index('<!-- SCRIPT-INDEX:END -->')
+open(PROTO, 'w').write(txt[:a] + '<!-- SCRIPT-INDEX:START -->\n' + '\n'.join(lines) + '\n' + txt[b:])
+print(len(rows), 'scripts indexed', sum(1 for r in rows if r[0] == 'Other'), 'in Other')

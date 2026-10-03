@@ -1,0 +1,70 @@
+# 30 September 2026 : the arc layout of the ceramic as DATA + one VEX function, shared by every wrangle that needs the distance to the arcs.
+# Every tile has four quadrants (TL TR BL BR, index 0 to 3). In each quadrant the tan line is a quarter circle joining the two adjacent edge midpoints:
+#   A = circle centred on the CORNER of the quadrant, B = circle centred on the TILE CENTRE, AB = both (a lens), 0 = none.
+# Mode 0 = the layout read from the final render 01a (Scripts/FitTruchet01a.py, ref-maps/01a_truchet.json): a table of 16 tiles x 4 quadrants.
+# Mode 1 = the layout of the strip of sheet 08 (ref_basecolor.png): three corner arcs per tile (the fourth is faint: TL on even tiles, BR on odd tiles) and the inscribed circle on the odd rows.
+# FR : le motif des arcs en donnees + une fonction VEX partagee ; mode 0 = rendu 01a, mode 1 = bande de la planche 08.
+import json as _json
+_T = _json.load(open('/Users/zenray/Create/Build/Productions/ZenRayHoudini/CeramicTiles/ref-maps/01a_truchet.json'))
+_codes = []
+for _r in range(4):
+    for _c in range(4):
+        for _k in ('TL', 'TR', 'BL', 'BR'):
+            _s = _T['r%dc%d' % (_r, _c)][_k]; _codes.append((1 if 'A' in _s else 0) + (2 if 'B' in _s else 0))
+_C = _json.load(open('/Users/zenray/Create/Build/Productions/ZenRayHoudini/CeramicTiles/ref-maps/01a_dish.json'))['C']   # 64 constants of the closed form dish parity (Scripts/ComputeDishParity.py)
+LAYOUT_VEX = '''// 30 September 2026 : layout table of 01a: code = 1 (A corner circle) + 2 (B tile centre circle), index (tile row * 4 + tile column) * 4 + quadrant (TL TR BL BR)
+int LT01A[] = {%s};
+// closed form dish / plateau parity: parity = (inside A and A drawn) xor (inside B and B drawn) xor LC[tile * 4 + quadrant]; 1 = hollow dish, 0 = plateau (Scripts/ComputeDishParity.py, no contradictions)
+int LC01A[] = {%s};
+// signed distances to the A and B circles of the quadrant the point is in (9 when that circle is not drawn); dA < 0 inside the A circle. dish = soft dish parity (0..1), blended across the nearest arc.
+// signed distance from the point (u, v) to the QUARTER arc of radius R centred on (cx, cy) that lies in the sector (sx, sy) (signs of the two direction components, pointing into the quadrant):
+// inside the sector it is length - R (negative inside the circle); outside the sector it is the distance to the nearest end point of the arc (at the edge midpoints), positive.
+float arcd(float u; float v; float cx; float cy; float sx; float sy; float R) {
+    float dx = u - cx; float dy = v - cy;
+    if (dx * sx >= 0.0 && dy * sy >= 0.0) return length(set(dx, dy)) - R;
+    float e1 = length(set(dx - R * sx, dy)); float e2 = length(set(dx, dy - R * sy));
+    return min(e1, e2);
+}
+// distances to the A and B quarter arcs of ONE given quadrant (tile tc, tr; quadrant q) for a point with local tile coordinates (u, v), which may lie outside this tile: the point is expressed in the frame of that tile
+void layq(int LT[]; int tc; int tr; int q; float u; float v; float R; int mode; export float dA; export float dB) {
+    int fa = 1; int fb = 0;
+    if (mode == 0) { int code = LT[(tr * 4 + tc) * 4 + q]; fb = code / 2; fa = code - 2 * fb; }
+    else { int faint = ((tr + tc) %% 2 == 0) ? 0 : 3; fa = (q != faint) ? 1 : 0; fb = ((tr %% 2) == 1) ? 1 : 0; }
+    float cu = (q == 1 || q == 3) ? 1.0 : 0.0; float cv = (q >= 2) ? 1.0 : 0.0;
+    float sxa = cu > 0.5 ? -1.0 : 1.0; float sya = cv > 0.5 ? -1.0 : 1.0;           // A: from the corner towards the tile centre
+    dA = fa != 0 ? arcd(u, v, cu, cv, sxa, sya, R) : 9.0;
+    dB = fb != 0 ? arcd(u, v, 0.5, 0.5, -sxa, -sya, R) : 9.0;                        // B: from the tile centre towards the corner
+}
+// 30 September 2026 (found by looking at the exported albedo: square blocks of half a tile): the signed distance to the nearest A circle and to the nearest B circle must be taken over the quadrants of the 3 x 3 neighbouring tiles,
+// not only over the quadrant the point is in, otherwise the distance (and every gain, ridge and band that depends on it) jumps along the quadrant midlines. The dish parity uses the own quadrant (exact closed form).
+void lay(int LT[]; int LC[]; int tc; int tr; float u; float v; float R; int mode; export float dA; export float dB; export float dish) {
+    int q = (u > 0.5 ? 1 : 0) + (v > 0.5 ? 2 : 0);
+    float oA; float oB;
+    layq(LT, tc, tr, q, u, v, R, mode, oA, oB);
+    dA = oA; dB = oB;
+    for (int l = -1; l <= 1; l++) for (int k = -1; k <= 1; k++) {
+        int ntc = tc + k; int ntr = tr + l;
+        if (ntc < 0 || ntc > 3 || ntr < 0 || ntr > 3) continue;
+        for (int qq = 0; qq < 4; qq++) {
+            float a; float b;
+            layq(LT, ntc, ntr, qq, u - k, v - l, R, mode, a, b);
+            if (abs(a) < abs(dA)) dA = a;
+            if (abs(b) < abs(dB)) dB = b;
+        }
+    }
+    dish = 0.0;
+    if (mode == 0) {
+        int fa = 0; int fb = 0; { int code = LT[(tr * 4 + tc) * 4 + q]; fb = code / 2; fa = code - 2 * fb; }
+        int cq = LC[(tr * 4 + tc) * 4 + q];
+        int inA = oA < 0.0 ? 1 : 0; int inB = oB < 0.0 ? 1 : 0;
+        int par = (fa & inA) ^ (fb & inB) ^ cq;
+        float dn = abs(oA) < abs(oB) ? oA : oB; int nearA = abs(oA) < abs(oB) ? 1 : 0;
+        int pin = nearA != 0 ? ((fa & 1) ^ (fb & inB) ^ cq) : ((fa & inA) ^ (fb & 1) ^ cq);
+        int pout = nearA != 0 ? ((fa & 0) ^ (fb & inB) ^ cq) : ((fa & inA) ^ (fb & 0) ^ cq);
+        float w = 1.0 - smooth(-0.03, 0.03, dn);
+        dish = lerp((float)pout, (float)pin, w);
+        if (abs(dn) > 5.0) dish = (float)par;
+    }
+}
+''' % (', '.join(str(x) for x in _codes), ', '.join(str(x) for x in _C))
+LAYOUT_VEX = LAYOUT_VEX.replace('%%', '%')

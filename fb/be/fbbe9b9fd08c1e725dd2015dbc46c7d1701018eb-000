@@ -1,0 +1,29 @@
+# 2 October 2026 : measures the variant 01b (pillow tiles) in its reference: 36 tile colours (median of the central glaze, highlights excluded), per tile luminance tilt (linear regression across the tile), tan line colour, joint colour. Output ref-maps/v01b.json.
+# Usage: python3 Scripts/Fit01b.py. FR : mesures de la reference 01b.
+import numpy as np, json
+from PIL import Image
+P = '/Users/zenray/Create/Build/Productions/ZenRayHoudini/CeramicTiles/'
+im = np.asarray(Image.open(P + '01b-julien-delannoy-10-right.png').convert('RGB'), np.float32) / 255.0
+tan = np.asarray(Image.open('/tmp/tan01b.png')) > 127
+lum = im @ np.array([0.2126, 0.7152, 0.0722], np.float32)
+pitch, off = 323.0, 314.0 - 323.0; N = 6
+cols, tilts, lums = [], [], []
+yy, xx = np.mgrid[0:int(pitch), 0:int(pitch)]
+for r in range(N):
+    for c in range(N):
+        x0 = int(round(off + pitch * c)); y0 = int(round(off + pitch * r))
+        x0c, y0c = max(x0, 0), max(y0, 0); x1, y1 = min(x0 + 323, 1920), min(y0 + 323, 1920)
+        t = im[y0c:y1, x0c:x1]; tl = lum[y0c:y1, x0c:x1]
+        # tile local coordinates of this crop
+        gy, gx = np.mgrid[y0c:y1, x0c:x1]; u = (gx - x0) / pitch - 0.5; v = (gy - y0) / pitch - 0.5
+        rad = np.hypot(u, v); sel = (rad < 0.32)
+        if sel.sum() < 500: sel = (rad < 0.45)
+        vals = t[sel]; lv = tl[sel]
+        keep = lv < np.percentile(lv, 85)          # drop the specular highlights
+        cols.append(np.median(vals[keep], axis=0).tolist()); lums.append(float(np.median(lv[keep])))
+        A = np.c_[u[sel][keep], v[sel][keep], np.ones(keep.sum())]; coef, *_ = np.linalg.lstsq(A, lv[keep], rcond=None); tilts.append([float(coef[0]), float(coef[1])])
+tanc = np.median(im[tan], axis=0).tolist()
+out = {'tiles': N, 'pitch_px': pitch, 'offset_px': off, 'colours_srgb': cols, 'luma': lums, 'tilt_uv': tilts, 'tan_srgb': tanc, 'squircle_n': 2.8}
+json.dump(out, open(P + 'ref-maps/v01b.json', 'w'), indent=1)
+print('tan colour', [round(x, 3) for x in tanc]); print('luma range %.3f..%.3f' % (min(lums), max(lums)))
+print('first row colours', [[round(x, 2) for x in c] for c in cols[:6]]); print('tilt magnitude median %.3f' % np.median([np.hypot(*t) for t in tilts]))

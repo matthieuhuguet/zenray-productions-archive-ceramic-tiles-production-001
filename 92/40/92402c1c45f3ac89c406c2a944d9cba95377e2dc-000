@@ -1,0 +1,138 @@
+# 1 October 2026 : the six camera shots of the commercial, as DATA (one source for the Houdini keyframes, the coverage check, the previews and the final renders). Square picture: aperture 24 x 24 mm, final 4096 x 4096 (Matthieu, 1 October 2026), 24 frames per second,
+# every shot 5 s = 120 frames, shot k = frames 1 + 120 k to 120 (k + 1). The camera looks along -Z, rotations rx (pitch, -90 = straight down) then ry (yaw), order xyz (verified on the key light).
+# Scene layout: three 4 x 4 m planes in a row along X (green at x = -4.2, multicolour at 0, teal at +4.2, a 0.2 m dark gap between them), then sets of spheres far away along -Z (z = -60, -120 and -180 for shots 4, 5 and 6; they were -14, -24 and -34 until S003), so that a shot never sees the objects of another.
+#   shot 1 TRIPTYCH : perfectly vertical (top down) slide over the three planes, always one on the axis: holds on each plane, smooth slides between
+#   shot 2 RISE     : crane up from an oblique view to straight overhead on the multicolour plane
+#   shot 3 ORBIT    : orbit of 62 degrees around the teal plane, 60 mm (a square picture needs a longer lens than 16:9 to stay on the 4 m plane), rack focus
+#   shot 4 SPHERES, ROLL  : the same vertical slide over three CUBE spheres (green, multicolour, teal) that roll about the horizontal axis
+#   shot 5 SPHERES, CUT   : NOT a travelling (Matthieu, 1 October 2026): a hard cut from sphere to sphere (one frame, no transition) while the three identical spheres keep turning like a record at the same angle, so the pattern turns without a jerk and only the colour changes at the cut
+#   shot 6 SPHERE TRIO    : three spheres of the same size in a triangle, the same instant a quaternion (slerp) rotation of each one, slow push in from above
+# FR : les six plans de la pub, en donnees ; image carree.
+import math
+CUTS = (40, 80)             # shot 5: frame index (0..119 inside the shot) where the camera jumps to the next sphere: 3 equal holds of 1.67 s, change here to cut faster
+FPS, SHOT_FRAMES, NSHOTS = 24, 120, 6
+# 1 October 2026 : THE EDIT, one place. The 720 frames rendered in Unreal are a POOL of six shots (0..5); the commercial is an ORDER of some of them. Matthieu (1 October 2026): "de 15 a 20 il faut enlever les frames [shot 4, Spheres roll]. Ca commence a 5 secondes et le shot du debut il faut le mettre a la fin donc 5 secondes ... output = 25 sec".
+# So the film starts at 5 s (Rise), drops 15 to 20 s (Spheres roll) and ends with the first shot (Triptych): Rise, Orbit, Spheres cut, Sphere trio, Triptych = 5 x 5 s = 25 s = 600 frames. Change the order HERE only; storyboard, film, short, thumbnail and cues follow. FR : le montage, a un seul endroit.
+# 1 October 2026 : remount 2. Matthieu (1 October 2026): "la sequence 10 a 15 en fait ce doit etre le premier plan, edit la video, ou l'ordre des frames ou les deux". The 10 to 15 s shot of the previous film (index 4, Spheres cut) now OPENS the film: Spheres cut, Rise, Orbit, Sphere trio, Triptych. FR : le plan de 10 a 15 s passe en premier.
+EDIT_ORDER = (4, 1, 2, 5, 0)
+# 1 October 2026 : the frames the film, the short and the thumbnail are made from. 'render/final_edit' = the edit as rendered (links, EditAd.py); 'render/final_edit_graded' = the same frames after the colour grade of GradeFrames.py (saturation +15, contrast +5, Vivid Cool 80, chosen by Matthieu on 1 October 2026). Change it HERE only. FR : le dossier d'images du film, a un seul endroit.
+EDIT_FRAMES_DIR = 'render/final_edit_graded'
+EDIT_FRAMES = len(EDIT_ORDER) * SHOT_FRAMES
+def edit_to_source(n):
+    """film frame n (1..EDIT_FRAMES) -> frame of the 720-frame Unreal pool"""
+    assert 1 <= n <= EDIT_FRAMES, n
+    i, j = divmod(n - 1, SHOT_FRAMES); return EDIT_ORDER[i] * SHOT_FRAMES + j + 1
+def source_to_edit(f):
+    """frame f of the pool -> film frame, or None when the shot is not in the film"""
+    k, j = divmod(f - 1, SHOT_FRAMES)
+    return EDIT_ORDER.index(k) * SHOT_FRAMES + j + 1 if k in EDIT_ORDER else None
+HAP, VAP = 24.0, 24.0
+PLANE_X = {'green': -4.2, 'multi': 0.0, 'teal': 4.2}
+SLIDE_STOPS = (-4.2, 0.0, 4.2)
+TOP_H_PLANE = 5.40          # eye height of the top-down slide over the planes: visible width 24 * 5.4 / 35 = 3.70 m on the plane (a 4 m plane is never left)
+SPH_R, TOP_H_SPHERE = 1.10, 4.90
+SPHERE_ROW_Z = {3: -60.0, 4: -120.0, 5: -180.0}      # 1 October 2026 : one SET per shot, 60 m apart (was -14, -24, -34 until storyboard S003): two sets at the same place z-fight (stripes alternating the colours of two overlapping spheres), and with the studio lights of PatchAdLights.py a neighbour set 10 m away leaked about 20 percent of its key light (60 m: under 1 percent)
+TRIO_D = 2.60               # shot 6: distance between the centres of the three spheres (radius 1.1, gap 0.4 m)      # one row per shot, 10 m apart: two rows at the same place z-fight (found 1 October 2026: stripes alternating the colours of two overlapping spheres)
+SHOTS = {
+    0: {'name': 'Triptych', 'kind': 'slide', 'focal': 35.0, 'fstop': 0.0, 'h': TOP_H_PLANE, 'z': 0.0, 'holds': ((0.00, 0.12), (0.40, 0.60), (0.88, 1.00)), 'keys': (0.0, 0.26, 0.5, 0.74, 1.0)},
+    1: {'name': 'Rise', 'kind': 'rise', 'focal': 28.0, 'fstop': 0.0, 'plane': 'multi', 'eye0': (0.0, 1.35, 2.05), 'eye1': (0.0, 3.60, 0.0), 'pitch0': -48.0, 'pitch1': -90.0, 'yaw0': 0.0, 'yaw1': -10.0, 'keys': (0.0, 0.25, 0.5, 0.75, 1.0)},
+    2: {'name': 'Orbit', 'kind': 'orbit', 'focal': 60.0, 'fstop': 2.8, 'plane': 'teal', 'radius': 1.80, 'az0': -38.0, 'az1': 24.0, 'h0': 2.00, 'h1': 1.60, 'tgt': (0.0, 0.0, -0.10), 'focus0': 2.3, 'focus1': 3.1, 'keys': (0.0, 0.25, 0.5, 0.75, 1.0)},
+    3: {'name': 'Spheres roll', 'kind': 'slide', 'focal': 35.0, 'fstop': 0.0, 'h': TOP_H_SPHERE, 'z': SPHERE_ROW_Z[3], 'holds': ((0.00, 0.12), (0.40, 0.60), (0.88, 1.00)), 'keys': (0.0, 0.2, 0.5, 0.8, 1.0)},
+    4: {'name': 'Spheres cut', 'kind': 'cut', 'focal': 35.0, 'fstop': 0.0, 'h': TOP_H_SPHERE, 'z': SPHERE_ROW_Z[4], 'cuts': CUTS, 'keys': (0.0, (CUTS[0] - 1) / 119.0, CUTS[0] / 119.0, (CUTS[1] - 1) / 119.0, CUTS[1] / 119.0)},
+    5: {'name': 'Sphere trio', 'kind': 'push', 'focal': 35.0, 'fstop': 0.0, 'h0': 8.60, 'h1': 7.60, 'cx': 0.0, 'cz': SPHERE_ROW_Z[5] - 0.37, 'keys': (0.0, 0.25, 0.5, 0.75, 1.0)},
+}
+COLOURS = ('green', 'multi', 'teal')
+# spheres: (id, shot, colour, x, y, z, radius, rotation: (kind, total degrees about its axis, tilt of the axis in degrees))
+def _row(shot, z, rot):
+    return [('s%d_%d' % (shot, i), shot, COLOURS[i], SLIDE_STOPS[i], SPH_R, z, SPH_R, rot) for i in range(3)]
+SPHERES = _row(3, SPHERE_ROW_Z[3], ('roll', 180.0, 0.0)) + _row(4, SPHERE_ROW_Z[4], ('turn', 240.0, 0.0))
+# shot 6: three equal spheres in an equilateral triangle (apex = multicolour at the top of the picture, image up is -Z), each one rotating by a quaternion slerp from the neutral orientation to its own target, ALL AT THE SAME TIME
+_c = SPHERE_ROW_Z[5]; _h = TRIO_D * math.sqrt(3.0) / 2.0
+TRIO_AXES = {'multi': ((0.35, 1.0, 0.25), 155.0), 'green': ((-0.30, 0.55, -1.0), 140.0), 'teal': ((0.90, 0.45, 0.35), 165.0)}
+TRIO_POS = {'multi': (0.0, _c - 2.0 * _h / 3.0), 'green': (-TRIO_D / 2.0, _c + _h / 3.0), 'teal': (TRIO_D / 2.0, _c + _h / 3.0)}
+SPHERES += [('s5_%d' % i, 5, col, TRIO_POS[col][0], SPH_R, TRIO_POS[col][1], SPH_R, ('quat', TRIO_AXES[col][1], 0.0)) for i, col in enumerate(COLOURS)]
+def ease(t, kind='smoother'):
+    t = min(max(t, 0.0), 1.0)
+    return t * t * t * (t * (6 * t - 15) + 10) if kind == 'smoother' else t * t * (3 - 2 * t)
+def lerp(a, b, u): return a + (b - a) * u
+def quat_axis_angle(axis, deg):
+    n = math.sqrt(sum(c * c for c in axis)); h = math.radians(deg) / 2.0; s_ = math.sin(h) / n
+    return (axis[0] * s_, axis[1] * s_, axis[2] * s_, math.cos(h))        # (x, y, z, w), unit
+def quat_slerp(q0, q1, u):
+    """spherical linear interpolation of two unit quaternions (x, y, z, w) along the shortest arc: the rotation turns at a constant speed about one fixed axis, no gimbal"""
+    d = sum(a * b for a, b in zip(q0, q1))
+    if d < 0.0: q1 = tuple(-c for c in q1); d = -d
+    if d > 0.9995:
+        q = tuple(lerp(a, b, u) for a, b in zip(q0, q1)); n = math.sqrt(sum(c * c for c in q)); return tuple(c / n for c in q)
+    th = math.acos(d); s0 = math.sin((1.0 - u) * th) / math.sin(th); s1 = math.sin(u * th) / math.sin(th)
+    return tuple(s0 * a + s1 * b for a, b in zip(q0, q1))
+def sphere_quat(sph, t):
+    """quaternion (x, y, z, w) of a 'quat' sphere at progress t of its shot: slerp from the neutral orientation to its target, smooth ease"""
+    col = sph[2]; axis, deg = TRIO_AXES[col]
+    return quat_slerp((0.0, 0.0, 0.0, 1.0), quat_axis_angle(axis, deg), ease(t, 'smooth'))
+def lerp3(a, b, u): return tuple(lerp(x, y, u) for x, y in zip(a, b))
+def aim(eye, tgt):
+    d = (tgt[0] - eye[0], tgt[1] - eye[1], tgt[2] - eye[2]); h = math.hypot(d[0], d[2])
+    return math.degrees(math.atan2(d[1], h)), math.degrees(math.atan2(-d[0], -d[2]))
+def slide_x(t, holds):
+    """x of the vertical slide: holds on the three stops, smootherstep between them; the camera is ON a stop (one object exactly on the axis) during every hold"""
+    (a0, a1), (b0, b1), (c0, c1) = holds
+    if t <= a1: return SLIDE_STOPS[0]
+    if t < b0: return lerp(SLIDE_STOPS[0], SLIDE_STOPS[1], ease((t - a1) / (b0 - a1)))
+    if t <= b1: return SLIDE_STOPS[1]
+    if t < c0: return lerp(SLIDE_STOPS[1], SLIDE_STOPS[2], ease((t - b1) / (c0 - b1)))
+    return SLIDE_STOPS[2]
+def pose(k, t):
+    """camera at progress t (0..1) of shot k -> dict with eye, rx, ry, focal, fstop, focus"""
+    S = SHOTS[k]; kind = S['kind']
+    if kind == 'slide':
+        x = slide_x(t, S['holds']); eye = (x, S['h'], S['z']); rx, ry = -90.0, 0.0; focus = S['h'] if k == 0 else S['h'] - SPH_R
+    elif kind == 'cut':
+        fr = int(round(t * (SHOT_FRAMES - 1))); x = SLIDE_STOPS[sum(1 for c in S['cuts'] if fr >= c)]
+        eye = (x, S['h'], S['z']); rx, ry = -90.0, 0.0; focus = S['h'] - SPH_R
+    elif kind == 'push':
+        h = lerp(S['h0'], S['h1'], ease(t)); eye = (S['cx'], h, S['cz']); rx, ry = -90.0, 0.0; focus = h - SPH_R
+    elif kind == 'rise':
+        u = ease(t); c = PLANE_X[S['plane']]; e = lerp3(S['eye0'], S['eye1'], u); eye = (c + e[0], e[1], e[2]); rx = lerp(S['pitch0'], S['pitch1'], u); ry = lerp(S['yaw0'], S['yaw1'], u); focus = eye[1] / max(math.sin(math.radians(-rx)), 0.2)
+    else:
+        u = ease(t); c = PLANE_X[S['plane']]; a = math.radians(lerp(S['az0'], S['az1'], u)); h = lerp(S['h0'], S['h1'], u)
+        eye = (c + S['radius'] * math.sin(a), h, S['radius'] * math.cos(a)); tgt = (c + S['tgt'][0], S['tgt'][1], S['tgt'][2]); rx, ry = aim(eye, tgt); focus = lerp(S['focus0'], S['focus1'], u)
+    return {'eye': eye, 'rx': rx, 'ry': ry, 'focal': S['focal'], 'fstop': S['fstop'], 'focus': focus}
+def sphere_rotation(sph, t):
+    """(rx, ry, rz) in degrees of the LOP transform of a sphere at progress t of ITS shot (order yxz). The sphere is a CUBE sphere: the camera, looking straight down, sees the centre of the +Y face, where the tiles are square.
+    roll = about Z by -total (the top face rolls towards +X, the direction of the slide; the pattern crosses the cube edges, which fall on tile joints); turn = about the vertical Y (the picture turns like a record); spin = about Y then tilted about X (tilted axis)."""
+    kind, total, tilt = sph[7]; a = total * ease(t, 'smooth')
+    if kind == 'roll': return (0.0, 0.0, -a)
+    if kind == 'turn': return (0.0, total * t, 0.0)        # constant angular speed: the cuts of shot 5 fall in the middle of a steady rotation
+    if kind == 'quat': raise ValueError('a quat sphere is keyed from sphere_quat() through hou.Quaternion.extractEulerRotates')
+    return (tilt, a, 0.0)
+def basis(rx, ry):
+    a, b = math.radians(rx), math.radians(ry)
+    fwd = (-math.cos(a) * math.sin(b), math.sin(a), -math.cos(a) * math.cos(b))
+    right = (math.cos(b), 0.0, -math.sin(b)); up = (math.sin(a) * math.sin(b), math.cos(a), math.sin(a) * math.cos(b))
+    return fwd, right, up
+def plane_hits(p):
+    fwd, right, up = basis(p['rx'], p['ry']); th = HAP / (2 * p['focal']); tv = VAP / (2 * p['focal']); out = []
+    for uu in (-1, 0, 1):
+        for vv in (-1, 0, 1):
+            d = tuple(fwd[i] + uu * th * right[i] + vv * tv * up[i] for i in range(3))
+            if d[1] >= -1e-6: out.append(None); continue
+            s = -p['eye'][1] / d[1]; out.append((p['eye'][0] + s * d[0], p['eye'][2] + s * d[2]))
+    return out
+def coverage(limit=1.97):
+    """worst margin to the edge of the plane the shot looks at, over the 120 frames (> 0: the picture never leaves it). Plane shots only; for the triptych the margin is measured in Z (the gaps between the planes are meant to be seen)"""
+    res = {}
+    for k, S in SHOTS.items():
+        if k > 2: continue
+        worst = 9.0; miss = 0
+        for f in range(SHOT_FRAMES):
+            p = pose(k, f / (SHOT_FRAMES - 1)); c = PLANE_X[S['plane']] if 'plane' in S else None
+            for h in plane_hits(p):
+                if h is None: miss += 1; continue
+                worst = min(worst, limit - (abs(h[1]) if c is None else max(abs(h[0] - c), abs(h[1]))))
+        res[k] = {'worst_margin_m': round(worst, 3), 'rays_missing_the_plane': miss}
+    return res
+if __name__ == '__main__':
+    for k, v in coverage().items(): print(k + 1, SHOTS[k]['name'], v)
+    for k in SHOTS:
+        for t in SHOTS[k]['keys']: p = pose(k, t); print(k + 1, 't=%.2f' % t, 'eye', tuple(round(x, 2) for x in p['eye']), 'rx %.1f ry %.1f' % (p['rx'], p['ry']))

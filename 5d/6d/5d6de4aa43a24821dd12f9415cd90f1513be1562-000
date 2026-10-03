@@ -1,0 +1,19 @@
+# 1 October 2026 : contact sheet of a lighting comparison. One row per frame, one column per rig/variant (folders of frames named ad_<frame 4 digits>.png), each cell captioned.
+# Usage: LightCompare.py <version L001> <words> <frames a,b,c> <label1=folder1> <label2=folder2> [<label3=folder3> ...]. Writes lighting/<version>_<date>_<words>.png (an evolution folder like storyboard/). FR : planche de comparaison d'eclairage.
+import sys, os
+from PIL import Image, ImageDraw, ImageFont
+B = '/Users/zenray/Create/Build/Productions/ZenRayHoudini/CeramicTiles/'
+ver, words, frames = sys.argv[1], sys.argv[2], [int(x) for x in sys.argv[3].split(',')]
+cols = [a.split('=', 1) for a in sys.argv[4:]]
+CELL, GAP, HEAD = int(os.environ.get('CELL', 400)), 6, 26
+try: font = ImageFont.truetype('/System/Library/Fonts/Helvetica.ttc', 15)
+except Exception: font = None
+W = Image.new('RGB', (len(cols) * CELL + (len(cols) + 1) * GAP, HEAD + len(frames) * (CELL + GAP) + GAP), (16, 16, 16)); dr = ImageDraw.Draw(W)
+for ci, (lab, folder) in enumerate(cols):
+    dr.text((GAP + ci * (CELL + GAP) + 4, 5), lab, fill=(235, 235, 235), font=font)
+    for ri, f in enumerate(frames):
+        p = os.path.join(B + folder if not folder.startswith('/') else folder, 'ad_%04d.png' % f)
+        if not os.path.exists(p): continue
+        im = Image.open(p).convert('RGB').resize((CELL, CELL), Image.LANCZOS); x, y = GAP + ci * (CELL + GAP), HEAD + ri * (CELL + GAP)
+        W.paste(im, (x, y)); dr.text((x + 6, y + 4), 'frame %d' % f, fill=(255, 255, 255), font=font)
+out = B + 'lighting/%s_2026-10-01_%s.png' % (ver, words); W.save(out); print(out, W.size)

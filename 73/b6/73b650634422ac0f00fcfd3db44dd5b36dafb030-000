@@ -1,0 +1,43 @@
+# 30 September 2026 : one Houdini cycle run inside the live session (runpy.run_path), driven by Scripts/cycle.json so that each iteration is one short call:
+#   {"rebuild": true|false, "export": ["height","basecolor","roughness","ao","normal","reflect"], "set": {"hda_param": value, "node/parm": value}, "frame": "render/frames/....png", "spp": 64}
+# rebuild runs BuildCeramicGreenReflectMapV10.py (which chains V5 to V10, keeping the tweaked HDA values), the HDA values named in "set" are applied after it, then the maps are exported, the hip saved, the frame rendered.
+# The MCP bridge times out during the render; the frame still arrives: wait for it with Scripts/WaitAndMeasure.sh. FR : un cycle Houdini pilote par cycle.json.
+import hou, json, runpy, pathlib
+B = '/Users/zenray/Create/Build/Productions/ZenRayHoudini/CeramicTiles/'
+C = json.load(open(B + 'Scripts/cycle.json'))
+net = hou.node('/obj/CeramicGreen_Height'); st = hou.node('/stage')
+# 1 October 2026 : the builders are historical (the graph is fused, 144 nodes). "patch": ["Scripts/PatchXxx.py", ...] runs small scripts that edit the fused graph by node name. "rebuild" is refused.
+import time as _t0, json as _json
+_T = {'start': _t0.time()}
+if C.get('rebuild'): raise RuntimeError('rebuild is disabled: the graph is fused; use "patch" scripts (see Scripts/BuildCeramicGreenHeightV5.py header)')
+for _p in C.get('patch', []): runpy.run_path(B + _p)
+# 1 October 2026 : shot / shot_t / colour_set carry expressions of the frame (the ad plays by itself); a constant in "set" locks them for the cycle and their expressions are restored at the end (_restore below)
+_EXPR = {}
+for _k in ('shot', 'shot_t', 'colour_set'):
+    if _k in C.get('set', {}) and net.parm(_k).keyframes(): _EXPR[_k] = net.parm(_k).expression(); net.parm(_k).deleteAllKeyframes()
+for k, v in C.get('set', {}).items():
+    (hou.node('/obj/CeramicGreen_Height/' + k.split('/')[0]).parm(k.split('/')[1]) if '/' in k else net.parm(k)).set(v)
+for k, v in C.get('stage_set', {}).items(): st.node(k.split('/')[0]).parm(k.split('/')[1]).set(v)      # e.g. "cg_key/xn__inputsangle_zta": 2.0
+import time as _t
+for s in C.get('export', []):
+    _ex = net.node(f'U4_export__{s}_v6'); _ex.parm('execute').pressButton()
+    _errs = list(_ex.errors()) + [e for _i in _ex.inputs() for e in _i.errors()]
+    if _errs: raise RuntimeError('export ' + s + ' cook error (1 October 2026: a wrangle error only shows AFTER the cook, the old map was silently reused): ' + _errs[0][:500])
+    _age = _t.time() - __import__('os').path.getmtime(_ex.parm('copoutput').eval())
+    if _age > 120: raise RuntimeError('export ' + s + ' did not write a new file (age %.0f s)' % _age)
+_T['exports_done'] = _t0.time(); hou.hipFile.save(B + 'hip/CeramicGreen_Height_V5.hiplc'); _T['saved'] = _t0.time()
+# 30 September 2026 : the render after an export of the same file name reused the OLD textures (frame 047 was byte identical to 046 after a new height and normal). Delete the converted .rat caches and dirty the material so that
+# the stage is re-cooked and the textures are re-read. FR : supprime les caches .rat et salit le materiau pour forcer la relecture des textures.
+import glob, os
+for f in glob.glob(B + 'render/*.rat'): os.remove(f)
+sh_ = hou.node('/mat/CeramicGreen_Material'); sh_.parm('basecolor_useTexture').set(0); sh_.parm('basecolor_useTexture').set(1)
+kp = st.node('cg_karma'); kp.parm('samplesperpixel').set(C.get('spp', 64)); kp.parm('varianceaa_maxsamples').set(C.get('spp', 64))
+rop = st.node('cg_render'); rop.parm('outputimage').set(B + C['frame'])
+_cam_expr = kp.parm('camera').expression() if kp.parm('camera').keyframes() else None      # 1 October 2026 : the Karma camera follows the HDA switch shot (expression); a cycle with "camera" locks it, then the expression is restored
+if 'camera' in C: kp.parm('camera').deleteAllKeyframes(); kp.parm('camera').set(C['camera'])      # 1 October 2026 : the render camera is chosen per cycle (default: the plane camera, so plane renders never change)
+rop.parm('override_res').set('specific'); _wh = C.get('res_wh', [C.get('res', 2048), C.get('res', 2048)]); rop.parm('res_user1').set(_wh[0]); rop.parm('res_user2').set(_wh[1])      # always set: a stale 1920 from an earlier frame made a frame 1920 and its noise statistics not comparable
+hou.hscript('render -V 1 ' + rop.path()); _T['rendered'] = _t0.time()
+open(B + 'render/cycle_log.jsonl', 'a').write(_json.dumps({'frame': C['frame'], 'res': C.get('res', 2048), 'spp': C.get('spp', 64), 'nodes': len(net.children()), 'export_s': round(_T['exports_done'] - _T['start'], 1), 'save_s': round(_T['saved'] - _T['exports_done'], 1), 'render_s': round(_T['rendered'] - _T['saved'], 1), 'time': _t0.strftime('%d %b %Y %H:%M:%S')}) + '\n')
+if _cam_expr and 'camera' in C: kp.parm('camera').setExpression(_cam_expr, hou.exprLanguage.Python)
+for _k, _e in _EXPR.items(): net.parm(_k).setExpression(_e, hou.exprLanguage.Hscript)      # restore the expressions
+result = 'cycle done'

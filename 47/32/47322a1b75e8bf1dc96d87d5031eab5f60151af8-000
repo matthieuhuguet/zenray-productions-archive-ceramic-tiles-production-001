@@ -1,0 +1,63 @@
+# 2 October 2026 : measures the variant 02a (serpentine arcs) in its reference: the 5 x 5 table of tile orientations (arcs of radius half a tile centred on two OPPOSITE tile corners: orientation 0 = top left and bottom right, 1 = top right and bottom left), the region parity (dish / plateau) by continuity across the tile edges,
+# the median colours of the dish and of the plateau, the tan colour. Output ref-maps/v02a.json and an overlay (arcs in green over the reference). Usage: python3 Scripts/Fit02a.py. FR : mesures de la reference 02a.
+import numpy as np, json
+from PIL import Image, ImageDraw
+P = '/Users/zenray/Create/Build/Productions/ZenRayHoudini/CeramicTiles/'
+T = np.load('/tmp/arc_cov_02a.npy'); N = 5; pitch, off = 388.0, -10.0
+ori = [[0 if (T[r, c, 0] + T[r, c, 3]) > (T[r, c, 1] + T[r, c, 2]) else 1 for c in range(N)] for r in range(N)]
+print('orientation table (0 = TL+BR arcs, 1 = TR+BL arcs):'); [print(' ', ''.join(str(x) for x in row)) for row in ori]
+def corner_centres(o): return ((0, 0), (1, 1)) if o == 0 else ((1, 0), (0, 1))          # (cx, cy) in tile units, the two arcs
+def inside(o, x, y):                                                                       # I = inside one of the two quarter discs of radius 0.5 of the tile with orientation o, (x, y) in 0..1 tile units
+    return any((x - cx) ** 2 + (y - cy) ** 2 < 0.25 for cx, cy in corner_centres(o))
+C = {(0, 0): 0}; queue = [(0, 0)]; bad = 0
+while queue:
+    r, c = queue.pop(0)
+    for dr, dc in ((0, 1), (1, 0), (0, -1), (-1, 0)):
+        r2, c2 = r + dr, c + dc
+        if not (0 <= r2 < N and 0 <= c2 < N): continue
+        # two sample points on the shared edge, at 25 % and 75 %
+        vals = []
+        for t in (0.25, 0.75):
+            if dc == 1: pa, pb = (1.0 - 1e-4, t), (1e-4, t)
+            elif dc == -1: pa, pb = (1e-4, t), (1.0 - 1e-4, t)
+            elif dr == 1: pa, pb = (t, 1.0 - 1e-4), (t, 1e-4)
+            else: pa, pb = (t, 1e-4), (t, 1.0 - 1e-4)
+            vals.append(inside(ori[r][c], *pa) ^ inside(ori[r2][c2], *pb))
+        if vals[0] != vals[1]: bad += 1
+        need = C[(r, c)] ^ int(vals[0])
+        if (r2, c2) in C:
+            if C[(r2, c2)] != need: bad += 1
+        else: C[(r2, c2)] = need; queue.append((r2, c2))
+print('parity constraints violated:', bad)
+# the central circle (junction of tiles (1,2),(1,3),(2,2),(2,3)) is a DISH: parity there must be 1
+pc = int(inside(ori[1][2], 0.95, 0.95)) ^ C[(1, 2)]
+if pc == 0: C = {k: v ^ 1 for k, v in C.items()}
+print('parity table C (parity = inside XOR C):'); [print(' ', ''.join(str(C[(r, c)]) for c in range(N))) for r in range(N)]
+# colours: median of the reference over dish and plateau pixels (away from lines and joints), highlights excluded
+im = np.asarray(Image.open(P + '02a-julien-delannoy-11-left.png').convert('RGB'), np.float32) / 255.0; lum = im @ np.array([0.2126, 0.7152, 0.0722], np.float32)
+tan = np.asarray(Image.open('/tmp/tan02a.png')) > 127
+H = 1920; yy, xx = np.mgrid[0:H, 0:H]; tc = np.floor((xx - off) / pitch).astype(int); tr = np.floor((yy - off) / pitch).astype(int); ok = (tc >= 0) & (tc < N) & (tr >= 0) & (tr < N)
+dish = np.zeros((H, H), bool); dd = np.full((H, H), 9.0)
+for r in range(N):
+    for c in range(N):
+        sel = (tc == r * 0 + c) & (tr == r); x = (xx[sel] - (off + pitch * c)) / pitch; y = (yy[sel] - (off + pitch * r)) / pitch
+        o = ori[r][c]; ins = np.zeros(sel.sum(), bool); d = np.full(sel.sum(), 9.0)
+        for cx, cy in corner_centres(o): rad = np.hypot(x - cx, y - cy); ins |= rad < 0.5; d = np.minimum(d, np.abs(rad - 0.5))
+        dish[sel] = ins ^ bool(C[(r, c)]); dd[sel] = d
+away = ok & (dd * pitch > 18) & ~tan
+dc = im[away & dish & (lum < np.percentile(lum[away & dish], 90))]; pc_ = im[away & ~dish & (lum < np.percentile(lum[away & ~dish], 90))]
+res = {'tiles': N, 'pitch_px': pitch, 'offset_px': off, 'orientation': ori, 'parity_xor': [[C[(r, c)] for c in range(N)] for r in range(N)], 'dish_colour_srgb': np.median(dc, 0).tolist(), 'plateau_colour_srgb': np.median(pc_, 0).tolist(), 'tan_srgb': np.median(im[tan], 0).tolist(), 'arc_radius_tile': 0.5}
+json.dump(res, open(P + 'ref-maps/v02a.json', 'w'), indent=1)
+print('dish colour', [round(x, 3) for x in res['dish_colour_srgb']], 'plateau colour', [round(x, 3) for x in res['plateau_colour_srgb']], 'tan', [round(x, 3) for x in res['tan_srgb']])
+ov = Image.open(P + '02a-julien-delannoy-11-left.png').convert('RGB'); d = ImageDraw.Draw(ov)
+for r in range(N):
+    for c in range(N):
+        for cx, cy in corner_centres(ori[r][c]):
+            X = off + pitch * (c + cx); Y = off + pitch * (r + cy); R = 0.5 * pitch
+            d.ellipse([X - R, Y - R, X + R, Y + R], outline=(0, 255, 0), width=1)
+# only the quarter inside the tile would be exact; the full circle outline is drawn on purpose to see the continuation across the tiles
+for r in range(N):
+    for c in range(N):
+        x0 = off + pitch * c; y0 = off + pitch * r
+        if dish[min(int(y0 + pitch * 0.5), H - 1), min(int(x0 + pitch * 0.5), H - 1)]: d.rectangle([x0 + 8, y0 + 8, x0 + 28, y0 + 28], fill=(255, 0, 0))
+ov.resize((960, 960)).save('/private/tmp/claude-501/-Users-zenray--claude-Memory1/2562b086-836d-49c5-80c7-0c935a98513c/scratchpad/fit02a_overlay.png')

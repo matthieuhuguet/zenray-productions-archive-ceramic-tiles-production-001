@@ -1,0 +1,21 @@
+# 2 October 2026 : read-only; shows how a COP wrangle of the graph is parameterised (snippet, export list, outputs) and a few other node types. FR : lecture seule.
+import hou, sys
+P = '/Users/zenray/Create/Build/Productions/ZenRayHoudini/CeramicTiles/'
+hou.hipFile.load(P + 'hip/CeramicGreen_Height_V5.hiplc', suppress_save_prompt=True, ignore_load_warnings=True)
+m = hou.node('/obj/CeramicGreen_Height')
+for name in ('B1_layout__signed_distance_to_the_A_and_B_circles', 'E8a_relief__bowl_profile_from_the_distance_to_the_arcs', 'ZK_rough__terracotta_roughness_mask_on_band_and_joints'):
+    w = m.node(name); print('=====', name, w.type().name())
+    for p in w.parms():
+        if p.name() in ('vexsnippet', 'vex_exportlist', 'vex_strict', 'vex_outputmask', 'type1', 'layer1', 'geoinput1', 'aovs', 'cablerenamebylabel') or p.name().startswith('bindname') or p.name().startswith('export'):
+            v = p.eval(); print(' ', p.name(), '=', (v[:1400] if isinstance(v, str) else v))
+    print(' inputs', [i.name() if i else None for i in w.inputs()], 'outputs', [o.name() for o in w.outputConnections()] if hasattr(w,'outputConnections') else '')
+    print(' input connectors', [c.inputName() for c in w.inputConnectors()[0]] if w.inputConnectors() else '')
+t = m.node('A1_layout__tile_grid_4x4'); print('=== tilepattern parms'); [print(' ', p.name(), '=', p.eval()) for p in t.parms() if p.eval() not in ('', 0, 0.0)][:0]
+for p in t.parms():
+    try:
+        v = p.eval()
+    except Exception: continue
+    if p.name() in ('pattern', 'tilesx', 'tilesy', 'tilex', 'tiley', 'scale', 'rows', 'cols', 'size') or 'tile' in p.name() or 'num' in p.name(): print(' ', p.name(), '=', v)
+sw = hou.copNodeTypeCategory().nodeType('switch'); print('=== switch parms', [p.name() for p in sw.parmTemplateGroup().entries()])
+bl = m.node('E8e_relief__parity_times_floor_shape'); print('=== blend parms', [(p.name(), p.eval()) for p in bl.parms() if p.name() in ('combinemode','blendmode','mode','signature','opacity','bias') or 'mode' in p.name()][:8])
+print('=== res params', m.parm('res1').eval(), m.parm('res2').eval(), 'layout_source', m.parm('layout_source').eval(), [ (p.name(), p.eval()) for p in m.parms() if p.name() in ('ring_radius','arc_width','small_circle_width','wall_height','joint_width','dish_depth','movement_amount')])

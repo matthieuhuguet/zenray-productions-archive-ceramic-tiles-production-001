@@ -1,0 +1,77 @@
+# 1 October 2026 : one command that tells whether a NEW conversation can pick the ad project up where it stopped. Checks (1) the files the protocol needs, (2) the shots as data (coverage of the planes, cut frames, quaternion paths),
+# (3) the saved hip loaded by hython: the nodes, the HDA folders (8 parameters at most each), the six cameras, the studio rig and its switch. Prints one line per check (PASS / FAIL), exit code 1 if anything fails.
+# Usage: python3 Scripts/CheckRestart.py [--json] [--no-hip]. Tested both ways (green on the real project, red when a file is hidden). FR : verifie qu'une nouvelle conversation peut reprendre le projet.
+import glob, os, sys, json, subprocess, tempfile
+B = '/Users/zenray/Create/Build/Productions/ZenRayHoudini/CeramicTiles/'
+SKILL = '/Users/zenray/.claude/skills/zenray-houdini/'
+HYTHON = '/Users/zenray/Create/Build/Houdini22/Houdini22.0.368/Frameworks/Houdini.framework/Versions/Current/Resources/bin/hython'
+res = []
+def chk(name, ok, detail=''): res.append({'check': name, 'ok': bool(ok), 'detail': str(detail)})
+need_files = ['01a-julien-delannoy-10-left.png', '01b-julien-delannoy-10-right.png', '02a-julien-delannoy-11-left.png', 'ref/08-julien-delannoy-boule-maps.jpg', 'hip/CeramicGreen_Height_V5.hiplc',
+              'ref-maps/01a_truchet.json', 'ref-maps/colour_calib.json', 'ref-maps/colour_variants.json', 'ref-maps/band_match.json', 'ref-maps/palettes.json', 'ref-maps/graph_layout.json',
+              'render/CeramicGreen_V6_height.png', 'render/CeramicGreen_V6_normal.png', 'render/CeramicGreen_V6_roughness.png', 'render/CeramicGreen_V6_reflect.png', 'render/CeramicGreen_V6_ao.png',
+              'render/CeramicGreen_V6_basecolor_green.png', 'render/CeramicGreen_V6_basecolor_multi.png', 'render/CeramicGreen_V6_basecolor_teal.png',
+              'Scripts/AdShots.py', 'Scripts/PatchAdScene2.py', 'Scripts/PatchAdCameras.py', 'Scripts/PatchAdLights.py', 'Scripts/PatchSphereCube.py', 'Scripts/RenderAdFrames.py', 'Scripts/AssembleStoryboard.py', 'Scripts/CeramicGreenParams.py', 'Scripts/MakeFinalHip.py', 'Scripts/RenderFinal.py', 'Scripts/LightCycle.py', 'Scripts/light_cycle.json',
+              'unreal/ue_params.json', 'unreal/ue_build_assets.py', 'unreal/ue_build_level.py', 'unreal/ue_build_sequence.py', 'unreal/ue_render.py', 'unreal/anim.json', 'unreal/rig.json', 'unreal/SM_CeramicAd_Sphere.fbx', 'Scripts/BuildUnrealAd.py', 'Scripts/RunUeFinal.py', 'Scripts/AssembleAdVideo.py', 'Scripts/MakeAdShort.py',
+              '/Users/zenray/Create/Build/Productions/ZenRayShards/ZenRayShards/Content/ZenRayShards/Levels/L_CeramicAd.umap', '/Users/zenray/Create/Build/Productions/ZenRayShards/ZenRayShards/Content/ZenRayShards/Cinematics/LS_CeramicAd.uasset', '/Users/zenray/Create/Build/Productions/ZenRayShards/ZenRayShards/Content/ZenRayShards/Materials/CeramicAd/M_CeramicAd.uasset',
+              'render/maps_4096/CeramicGreen_V6_basecolor_teal.png', 'render/maps_4096/CeramicGreen_V6_normal.png', 'render/_ad_final.hiplc', 'lighting/HISTORY.md',
+              'storyboard/HISTORY.md', 'backups/2026-10-01_before_prune/CeramicGreen_Height_V5_106nodes_tidy.hiplc']
+for f in need_files: chk('file ' + f.replace('/Users/zenray/Create/Build/Productions/ZenRayShards/ZenRayShards/Content/', 'ZRS Content/'), os.path.exists(f if f.startswith('/') else B + f))
+chk('latest storyboard image', any(x.startswith('S0') and x.endswith('.png') for x in os.listdir(B + 'storyboard')))
+for f in ('Protocol1.md', 'Storyboard1.md', 'Copernicus1.md', 'SKILL.md'): chk('skill file ' + f, os.path.exists(SKILL + f))
+chk('feedback file', os.path.exists('/Users/zenray/.claude/tmp/tmp-houdini-september-2026/materials-copernicus-exercize/FEEDBACK.md'))
+# shots as data
+sys.path.insert(0, B + 'Scripts')
+try:
+    import AdShots as A
+    cov = A.coverage(); chk('plane coverage margins > 0', all(v['worst_margin_m'] > 0 and v['rays_missing_the_plane'] == 0 for v in cov.values()), cov)
+    chk('six shots of 120 frames', len(A.SHOTS) == 6 and A.SHOT_FRAMES == 120 and A.FPS == 24)
+    c = A.SHOTS[4]['cuts']; chk('shot 5 cuts inside the shot', all(0 < x < 119 for x in c), c)
+    chk('shot 5 camera jumps in one frame', A.pose(4, (c[0] - 1) / 119.0)['eye'][0] != A.pose(4, c[0] / 119.0)['eye'][0])
+    q = A.sphere_quat([s for s in A.SPHERES if s[0] == 's5_0'][0], 1.0); chk('quaternion is unit', abs(sum(x * x for x in q) - 1.0) < 1e-9)
+    chk('sets 60 m apart', abs(A.SPHERE_ROW_Z[4] - A.SPHERE_ROW_Z[3]) >= 50)
+    # 1 October 2026 : the 25 s edit (Matthieu: remove 15 to 20 s, start at 5 s, first shot to the end); remount 2 (1 October 2026): the 10 to 15 s shot (Spheres cut) opens the film, EDIT_ORDER = (4, 1, 2, 5, 0)
+    chk('edit order is Spheres cut, Rise, Orbit, Sphere trio, Triptych', [A.SHOTS[k]['name'] for k in A.EDIT_ORDER] == ['Spheres cut', 'Rise', 'Orbit', 'Sphere trio', 'Triptych'])
+    chk('edit is 25 s = 600 frames, Spheres roll left out', A.EDIT_FRAMES == 600 and A.EDIT_FRAMES / A.FPS == 25.0 and A.source_to_edit(361) is None and A.source_to_edit(480) is None)
+    chk('edit maps film frame 1 to pool 481, film 121 to pool 121 and film 481 to pool 1', A.edit_to_source(1) == 481 and A.edit_to_source(121) == 121 and A.edit_to_source(481) == 1 and A.edit_to_source(600) == 120)
+    chk('edit links built (EditAd.py)', len(glob.glob(B + 'render/final_edit/ad_[0-9][0-9][0-9][0-9].png')) == 600 and os.path.samefile(B + 'render/final_edit/ad_0001.png', B + 'render/final_ue/ad_0481.png'))
+    chk('graded edit links built (EditAd.py, grade stored by pool number)', len(glob.glob(B + 'render/final_edit_graded/ad_[0-9][0-9][0-9][0-9].png')) == 600 and len(glob.glob(B + 'render/final_ue_graded/ad_[0-9][0-9][0-9][0-9].png')) >= 600 and os.path.samefile(B + 'render/final_edit_graded/ad_0001.png', B + 'render/final_ue_graded/ad_0481.png'))
+except Exception as e: chk('AdShots import', False, e)
+# the saved hip, through hython
+if '--no-hip' not in sys.argv:
+    code = r'''
+import hou, json
+hou.hipFile.load(%r, suppress_save_prompt=True, ignore_load_warnings=True)
+st = hou.node('/stage'); net = hou.node('/obj/CeramicGreen_Height'); out = {}
+out['net'] = net is not None
+ptg = net.parmTemplateGroup(); counts = {}
+for lab in ('HDA Pattern', 'HDA Colour', 'HDA Render', 'HDA Shot', 'HDA Light'):
+    f = ptg.findFolder([lab]); counts[lab] = len(f.parmTemplates()) if f is not None else -1
+out['folders'] = counts
+out['cams'] = [st.node('cg_ad_shot%%d' %% i) is not None for i in range(6)]
+out['merge_inputs'] = len(st.node('cg_merge').inputs())
+out['lights'] = len([c for c in st.children() if c.name().startswith('ad_L_')])
+sw = st.node('ad_light_switch'); out['switch'] = sw is not None and sw.parm('input').expression() if sw else False
+out['rig'] = net.parm('light_rig').eval() if net.parm('light_rig') else None
+out['cyc'] = hou.node('/obj/AdStudio_Cyc/OUT') is not None
+out['errors'] = [n.path() for n in st.children() if n.errors()]
+out['karma_input'] = st.node('cg_karma').inputs()[0].name()
+print('JSON' + json.dumps(out))
+''' % (B + 'hip/CeramicGreen_Height_V5.hiplc')
+    try:
+        r = subprocess.run([HYTHON, '-c', code], capture_output=True, text=True, timeout=240)
+        line = [l for l in r.stdout.split('\n') if l.startswith('JSON')]
+        o = json.loads(line[0][4:]) if line else None
+    except Exception as e: o = None; chk('hip loads in hython', False, e)
+    if o:
+        chk('hip loads in hython', True); chk('HDA folders hold 8 parameters at most', all(v <= 8 for v in o['folders'].values()) and o['folders']['HDA Pattern'] > 0, o['folders'])
+        chk('six ad cameras', all(o['cams'])); chk('twelve objects in the merge', o['merge_inputs'] == 12, o['merge_inputs'])
+        chk('studio rig: 16 lights, switch on light_rig, cyclorama SOP', o['lights'] == 16 and 'light_rig' in str(o['switch']) and o['cyc'], {'lights': o['lights'], 'switch': o['switch'], 'cyc': o['cyc']})
+        chk('Karma reads the light switch', o['karma_input'] == 'ad_light_switch', o['karma_input']); chk('no node errors in /stage', not o['errors'], o['errors'])
+    elif not any('hip loads' in x['check'] for x in res): chk('hip loads in hython', False, (r.stderr or '')[-300:])
+bad = [x for x in res if not x['ok']]
+if '--json' in sys.argv: print(json.dumps({'ok': not bad, 'checks': res}, indent=1))
+else:
+    for x in res: print(('PASS ' if x['ok'] else 'FAIL ') + x['check'] + ('' if x['ok'] or not x['detail'] else '   <- ' + x['detail'][:200]))
+    print('%d checks, %d failed' % (len(res), len(bad)))
+sys.exit(1 if bad else 0)

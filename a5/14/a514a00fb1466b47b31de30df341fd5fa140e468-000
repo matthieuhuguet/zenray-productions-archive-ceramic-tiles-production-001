@@ -1,0 +1,58 @@
+# 1 October 2026 : hython. Exports from the Houdini hip everything the Unreal version of the commercial needs, in UNREAL space and centimetres (Matthieu, 1 October 2026: "on va passer dans Unreal ... dans le projet /zrs"):
+#   unreal/SM_CeramicAd_Plane.fbx, SM_CeramicAd_Sphere.fbx, SM_CeramicAd_Cyclorama.fbx   the meshes (FBX, metres converted to centimetres)
+#   unreal/anim.json   per frame of the 720: the camera of the shot (position, forward / right / up vectors, focal length, f-stop, focus distance) and the 9 spheres (position, the world direction of their three local axes)
+#   unreal/rig.json   the static objects (planes), the sets (centre of each), the studio light rig (from PatchAdLights.py P), the material numbers (colour multipliers)
+# Axis mapping measured in the editor (unreal/ue_axis_probe.py, 1 October 2026): the Unreal FBX importer maps Houdini (x, y, z) to Unreal (X, Y, Z) = (x, z, y) times 100, a mirror (handedness change). Everything below uses the same mapping, so a Houdini orientation matrix R becomes C R C^-1.
+# Usage: hython Scripts/ExportForUnreal.py [hip]. FR : export de tout ce qu'il faut a la version Unreal de la pub.
+import hou, os, sys, json, math, runpy
+B = '/Users/zenray/Create/Build/Productions/ZenRayHoudini/CeramicTiles/'
+OUT = B + 'unreal/'; os.makedirs(OUT, exist_ok=True)
+hou.hipFile.load(sys.argv[1] if len(sys.argv) > 1 else B + 'hip/CeramicGreen_Height_V5.hiplc', suppress_save_prompt=True, ignore_load_warnings=True)
+A = runpy.run_path(B + 'Scripts/AdShots.py'); L = runpy.run_path(B + 'Scripts/PatchAdLights.py') if False else None
+SF = A['SHOT_FRAMES']
+def U(v): return [100.0 * v[0], 100.0 * v[2], 100.0 * v[1]]            # a position, metres -> Unreal centimetres
+def D(v): return [v[0], v[2], v[1]]                                      # a direction (no scale)
+# ---- 1. meshes
+def fbx(name, soppath, reverse=False):
+    obj = hou.node('/obj'); g = obj.node('_exp_' + name) or obj.createNode('geo', '_exp_' + name)
+    for c in g.children(): c.destroy()
+    ob = g.createNode('object_merge'); ob.parm('objpath1').set(soppath); ob.parm('xformtype').set(0)
+    last = ob
+    if reverse: r = g.createNode('reverse'); r.setInput(0, last); last = r
+    n = g.createNode('normal'); n.setInput(0, last); n.setDisplayFlag(True); n.setRenderFlag(True)
+    rop = hou.node('/out').node('_fbx_' + name) or hou.node('/out').createNode('filmboxfbx', '_fbx_' + name)
+    rop.parm('startnode').set(g.path()); rop.parm('sopoutput').set(OUT + name + '.fbx'); rop.parm('convertunits').set(1); rop.render()
+    return len(n.geometry().prims())
+npl = fbx('SM_CeramicAd_Plane', '/obj/CeramicGreen_Plane/assign_ceramic_green')
+nsp = fbx('SM_CeramicAd_Sphere', '/obj/CeramicGreen_Sphere/OUT')
+ncy = fbx('SM_CeramicAd_Cyclorama', '/obj/AdStudio_Cyc/OUT', reverse=True)
+print('meshes: plane %d prims, sphere %d, cyclorama %d' % (npl, nsp, ncy), flush=True)
+# ---- 2. animation
+def basis_h(m):      # row-vector convention: the image of the local x, y, z axes are the rows of the rotation matrix
+    t = m.asTupleOfTuples(); return [[t[i][j] for j in range(3)] for i in range(3)]
+st = hou.node('/stage'); anim = {'cameras': {}, 'spheres': {}}
+for k in range(6):
+    cam = st.node('cg_ad_shot%d' % k); ro = ['xyz', 'xzy', 'yxz', 'yzx', 'zxy', 'zyx'][int(cam.parm('rOrd').eval())] if cam.parm('rOrd') else 'xyz'; fr = []      # rOrd is a menu index
+    for f in range(1 + SF * k, 1 + SF * (k + 1)):
+        v = lambda p: cam.parm(p).evalAtFrame(f)
+        m = hou.hmath.buildRotate([v('rx'), v('ry'), 0.0], ro)
+        R = basis_h(m); fwd = [-x for x in R[2]]; right = R[0]; up = R[1]
+        fr.append({'f': f, 'pos': U((v('tx'), v('ty'), v('tz'))), 'fwd': D(fwd), 'right': D(right), 'up': D(up), 'focal': v('focalLength'), 'fstop': v('fStop'), 'focus_cm': 100.0 * v('focusDistance')})
+    anim['cameras'][str(k)] = fr
+for s in A['SPHERES']:
+    sid, shot, col, x, y, z, rad, rot = s; n = st.node('cg_xf_' + sid); ro = ['xyz', 'xzy', 'yxz', 'yzx', 'zxy', 'zyx'][int(n.parm('rOrd').eval())]; fr = []
+    for f in range(1 + SF * shot, 1 + SF * (shot + 1)):
+        v = lambda p: n.parm(p).evalAtFrame(f)
+        m = hou.hmath.buildRotate([v('rx'), v('ry'), v('rz')], ro)
+        R = basis_h(m); fr.append({'f': f, 'pos': U((v('tx'), v('ty'), v('tz'))), 'x': D(R[0]), 'y': D(R[1]), 'z': D(R[2]), 'radius_cm': 100.0 * v('sx')})
+    anim['spheres'][sid] = {'shot': shot, 'colour': col, 'frames': fr}
+json.dump(anim, open(OUT + 'anim.json', 'w')); print('animation: %d camera frames, %d spheres' % (sum(len(v) for v in anim['cameras'].values()), len(anim['spheres'])), flush=True)
+# ---- 3. rig
+net = hou.node('/obj/CeramicGreen_Height'); mats = {}
+for c in ('green', 'multi', 'teal'):
+    m = hou.node('/mat/CeramicAd_' + c); mats[c] = {'multiplier': [m.parm(p).eval() for p in ('basecolorr', 'basecolorg', 'basecolorb')], 'normal_scale': hou.node('/mat/CeramicAd_green').parm('baseNormal_scale').eval()}
+rig = {'planes': {'green': U((A['PLANE_X']['green'], 0, 0)), 'multi': U((A['PLANE_X']['multi'], 0, 0)), 'teal': U((A['PLANE_X']['teal'], 0, 0))},
+       'sets': {'planes': U((0, 0, 0)), 's3': U((0, 0, A['SPHERE_ROW_Z'][3])), 's4': U((0, 0, A['SPHERE_ROW_Z'][4])), 's5': U((0, 0, A['SPHERE_ROW_Z'][5]))},
+       'materials': mats, 'houdini_studio_defaults': {p.name(): p.eval() for p in net.parms() if p.name().startswith('studio_') or p.name() == 'light_rig'}, 'glaze_tint': net.parm('glaze_tint').eval(),
+       'fps': A['FPS'], 'shot_frames': SF, 'sphere_radius_cm': 100.0 * A['SPH_R'], 'plane_size_cm': 400.0}
+json.dump(rig, open(OUT + 'rig.json', 'w'), indent=1); print('rig written', flush=True)

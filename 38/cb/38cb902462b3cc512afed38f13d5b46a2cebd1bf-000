@@ -1,0 +1,17 @@
+# 2 October 2026 : cooks the six FINAL maps of one variant headless and writes them as PNG. Usage: hython Scripts/CookVariant.py <hip> <variant 0..3> <resolution> <outdir> [maps comma list = all] [--old (use the old U4_export ROPs, for the variant 0 non regression test)]. FR : cuit les six cartes d'une variante.
+import hou, sys, os, time
+sys.path.insert(0, '/Users/zenray/Create/Build/Productions/ZenRayHoudini/CeramicTiles/Scripts')
+import VariantLib as L
+hip, variant, res, outdir = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), os.path.abspath(sys.argv[4]); os.makedirs(outdir, exist_ok=True)
+maps = [m for m in (sys.argv[5].split(',') if len(sys.argv) > 5 and not sys.argv[5].startswith('--') else L.MAPS)]
+old = '--old' in sys.argv
+hou.hipFile.load(os.path.abspath(hip), suppress_save_prompt=True, ignore_load_warnings=True)
+n = L.net(); n.parm('res1').set(res); n.parm('res2').set(res); n.parm('variant').set(variant)
+t0 = time.time()
+for m in maps:
+    ex = n.node(('U4_export__%s_v6' % m) if old else ('VX_export__%s' % m)); out = os.path.join(outdir, '%s.png' % m)
+    if os.path.exists(out): os.remove(out)
+    ex.parm('copoutput').set(out); t = time.time(); ex.parm('execute').pressButton()
+    err = list(ex.errors()) + [e for c in ex.inputAncestors() for e in c.errors()][:2]
+    print('%-9s %s %.1fs %s' % (m, 'OK ' if os.path.exists(out) else 'MISSING', time.time() - t, err[:2] if err else ''), flush=True)
+print('variant %d res %d total %.1fs' % (variant, res, time.time() - t0))

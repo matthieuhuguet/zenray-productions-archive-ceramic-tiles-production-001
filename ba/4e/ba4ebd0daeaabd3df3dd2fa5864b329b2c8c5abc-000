@@ -1,0 +1,22 @@
+# 1 October 2026 : turns the measured palettes (ref-maps/palettes.json) into the gain tables of the colour variants of the ceramic tiles. ONLY colours change; the gains multiply the glaze colour of the basecolor map, per channel, in LINEAR light.
+#   variant 1 'multi' : one gain triplet per tile of the 4 x 4 plane, taken from a 4 x 4 window of the 6 x 6 tiles of 01b (rows 1 to 4, columns 0 to 3: pale aqua, grey blue, mauve, orange, ochre, brown), global lightness scaled so that the mean tile luminance is MULTI_LUM
+#   variant 2 'teal'  : the median glaze colour of 02a (emerald / teal: G > B > R, hue about 163 degrees; it is NOT a pure blue)
+# gain = linear(target render colour) / linear(median glaze colour of 01a, the current green). Calibrated afterwards from real renders (Scripts/CalibrateVariants.py, cumulative like colour_calib.json). FR : tables de gains des variantes de couleur.
+import json, numpy as np
+B = '/Users/zenray/Create/Build/Productions/ZenRayHoudini/CeramicTiles/'
+P = json.load(open(B + 'ref-maps/palettes.json'))
+MULTI_LUM = 0.30
+WINDOW = (1, 0)                                   # first row and column of the 4 x 4 window in the 6 x 6 tiles of 01b
+lin = lambda x: np.where(x <= 0.04045, x / 12.92, ((x + 0.055) / 1.055) ** 2.4)
+g = np.array(P['01a']['median'])
+tiles = np.array([[P['01b']['tiles'][WINDOW[0] + r][WINDOW[1] + c]['rgb'] for c in range(4)] for r in range(4)])      # 4 x 4 x 3
+lum = (tiles * [0.2126, 0.7152, 0.0722]).sum(-1)
+s = MULTI_LUM / lum.mean()
+tiles_s = np.clip(tiles * s, 0.0, 1.0)
+multi = (lin(tiles_s) / lin(g)).reshape(16, 3)
+teal = lin(np.array(P['02a']['median'])) / lin(g)
+out = {'multi': multi.tolist(), 'teal': teal.tolist(), 'multi_target_lum': MULTI_LUM, 'window': list(WINDOW), 'tiles_target_srgb': tiles_s.reshape(16, 3).tolist(), 'teal_target_srgb': P['02a']['median'], 'green_ref_srgb': g.tolist(), 'green_tex_median': [0.31, 0.336, 0.259], 'chroma_keep': 0.30, 'history': []}      # green_tex_median: median glaze colour of the green TEXTURE (sRGB), measured 1 October 2026
+json.dump(out, open(B + 'ref-maps/colour_variants.json', 'w'), indent=1)
+print('scale applied to the 01b window', round(float(s), 3), ' mean tile luminance', round(float((tiles_s * [0.2126, 0.7152, 0.0722]).sum(-1).mean()), 3))
+print('teal gain (R,G,B):', np.round(teal, 3))
+print('multi gains per tile (rows of the plane):'); print(np.round(multi.reshape(4, 4, 3), 2))

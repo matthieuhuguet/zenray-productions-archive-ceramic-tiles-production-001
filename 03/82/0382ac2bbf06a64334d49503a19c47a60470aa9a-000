@@ -1,0 +1,31 @@
+# 1 October 2026 : builds the review material of the commercial from the preview frames (render/ad_preview/p960/ad_<frame>.png): a contact sheet (6 frames per shot, one row per shot, with the shot name, colour set and time)
+# and an H.264 preview movie (one picture = 3 frames of the ad, 8 pictures per second = real time, 15 s). Usage: AssembleAdPreview.py [folder] FR : planche contact et film d'apercu.
+import sys, os, subprocess, glob
+from PIL import Image, ImageDraw
+B = '/Users/zenray/Create/Build/Productions/ZenRayHoudini/CeramicTiles/'
+D = sys.argv[1] if len(sys.argv) > 1 else B + 'render/ad_preview/p960/'
+NAMES = {0: ('Slide', 'green'), 1: ('Rise', 'multicolour'), 2: ('Orbit', 'teal')}
+SF = 120
+rows = []
+for k in range(3):
+    f0 = 1 + SF * k; fs = [f0, f0 + 24, f0 + 48, f0 + 72, f0 + 96, f0 + 119]
+    ims = []
+    for f in fs:
+        p = D + 'ad_%04d.png' % f
+        if not os.path.exists(p): p = sorted(glob.glob(D + 'ad_*.png'), key=lambda q: abs(int(q[-8:-4]) - f))[0]
+        ims.append(Image.open(p).convert('RGB').resize((480, 270), Image.LANCZOS))
+    rows.append((k, fs, ims))
+W = Image.new('RGB', (480 * 6, (270 + 26) * 3), (16, 16, 16)); dr = ImageDraw.Draw(W)
+for k, fs, ims in rows:
+    y = k * 296
+    dr.text((8, y + 6), 'SHOT %d  %s  (%s)   frames %d to %d, 5 s' % (k, NAMES[k][0], NAMES[k][1], fs[0], fs[-1]), fill=(235, 235, 235))
+    for i, im in enumerate(ims): W.paste(im, (i * 480, y + 26)); dr.text((i * 480 + 6, y + 30), '%.1f s' % ((fs[i] - fs[0]) / 24), fill=(255, 255, 255))
+W.save(B + 'measures/C040_tint68calib/ad_contact_sheet.png'); print('contact sheet saved')
+# movie
+frames = sorted(glob.glob(D + 'ad_*.png'))
+lst = B + 'render/ad_preview/list.txt'
+with open(lst, 'w') as fh:
+    for p in frames: fh.write("file '%s'\nduration %.5f\n" % (p, 1 / 8))
+out = B + 'measures/C040_tint68calib/ad_preview_960.mp4'
+subprocess.run(['ffmpeg', '-y', '-loglevel', 'error', '-f', 'concat', '-safe', '0', '-i', lst, '-vf', 'fps=8,format=yuv420p', '-c:v', 'libx264', '-crf', '20', '-tag:v', 'avc1', '-movflags', '+faststart', out], check=True)
+print('movie', out, os.path.getsize(out) // 1024, 'KiB,', len(frames), 'pictures')

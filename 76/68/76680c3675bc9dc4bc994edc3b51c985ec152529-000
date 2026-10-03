@@ -1,0 +1,15 @@
+# 1 October 2026 : compares an Unreal frame with the Houdini final frame (linear light): median, mean per channel, 99th percentile, and the exposure correction in stops that would equalise the medians. Usage: CompareUeHou.py <unreal.png> <houdini.png> [disc]
+# 'disc' restricts the measure to the central disc (sphere frames). FR : compare une image Unreal a l'image Houdini correspondante.
+import sys, numpy as np
+from PIL import Image
+def lin(a): a = a / 255.0; return np.where(a <= 0.04045, a / 12.92, ((a + 0.055) / 1.055) ** 2.4)
+def load(p, size=512): return lin(np.asarray(Image.open(p).convert('RGB').resize((size, size), Image.LANCZOS), dtype=np.float32))
+a, b = load(sys.argv[1]), load(sys.argv[2]); h = a.shape[0]
+if len(sys.argv) > 3:
+    yy, xx = np.mgrid[0:h, 0:h]; m = ((yy - h / 2) ** 2 + (xx - h / 2) ** 2) < (0.3 * h) ** 2
+else: m = np.ones((h, h), bool)
+def st(x): L = x.mean(axis=2)[m]; return np.median(L), np.percentile(L, 99), x[m].mean(axis=0)
+(ma, pa, ca), (mb, pb, cb) = st(a), st(b)
+print('unreal  median %.4f p99 %.3f mean rgb %s' % (ma, pa, np.round(ca, 4)))
+print('houdini median %.4f p99 %.3f mean rgb %s' % (mb, pb, np.round(cb, 4)))
+print('exposure correction to equalise medians: %+.2f stops ; colour ratio unreal/houdini %s' % (np.log2(mb / ma), np.round(ca / cb, 3)))

@@ -1,0 +1,21 @@
+# 1 October 2026 (edit of 25 s, same day): assembles the film of the commercial from the EDIT of the Unreal frames: render/final_edit/ad_0001..0600.png (symbolic links built by EditAd.py in the order of AdShots.EDIT_ORDER, 4096 x 4096) -> render/ceramic-tiles-ad-4096-24fps.mov (HEVC, tag hvc1 as the project rule for HEVC MP4/MOV demands) and a 2048 H.264 MP4 for quick viewing, then checks them with ffprobe
+# (size, frame rate, 600 frames, 25.0 s, codec tag). The alpha channel of the PNG is dropped. Silent: the music is chosen by Matthieu. Usage: python3 Scripts/AssembleAdVideo.py. FR : assemble la pub (HEVC hvc1 4096 carre, 24 i/s) et la controle.
+import subprocess, json, sys, os, glob
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import AdShots as A
+# 1 October 2026 (Matthieu: "pas besoin de refaire le short, j'ai juste besoin de la video 4K"): by default ONLY the 4K film is made; the 2048 MP4 only with --with-2048. FR : par defaut, seulement la video 4K.
+WITH_2048 = '--with-2048' in sys.argv
+P = '/Users/zenray/Create/Build/Productions/ZenRayHoudini/CeramicTiles/'
+N = A.EDIT_FRAMES; SEC = N / A.FPS      # 600 frames, 25 s (one place: AdShots.EDIT_ORDER)
+fr = sorted(glob.glob(P + A.EDIT_FRAMES_DIR + '/ad_[0-9][0-9][0-9][0-9].png'))
+if len(fr) != N: print('FAIL: %d frames instead of %d (run Scripts/EditAd.py)' % (len(fr), N)); sys.exit(1)
+mov, mp4 = P + 'render/ceramic-tiles-ad-4096-24fps.mov', P + 'render/ceramic-tiles-ad-2048-24fps.mp4'
+subprocess.run(['ffmpeg', '-v', 'error', '-y', '-framerate', '24', '-start_number', '1', '-i', P + A.EDIT_FRAMES_DIR + '/ad_%04d.png', '-vf', 'format=yuv420p', '-c:v', 'hevc_videotoolbox', '-q:v', '72', '-tag:v', 'hvc1', '-movflags', '+faststart', mov], check=True)
+if WITH_2048: subprocess.run(['ffmpeg', '-v', 'error', '-y', '-framerate', '24', '-start_number', '1', '-i', P + A.EDIT_FRAMES_DIR + '/ad_%04d.png', '-vf', 'scale=2048:2048:flags=lanczos,format=yuv420p', '-c:v', 'libx264', '-crf', '17', '-preset', 'slow', '-movflags', '+faststart', mp4], check=True)
+ok = True
+for f in ((mov, mp4) if WITH_2048 else (mov,)):
+    j = json.loads(subprocess.run(['ffprobe', '-v', 'error', '-select_streams', 'v:0', '-count_frames', '-show_entries', 'stream=width,height,r_frame_rate,nb_read_frames,codec_name,codec_tag_string:format=duration,size', '-of', 'json', f], capture_output=True, text=True).stdout)
+    s = j['streams'][0]; d = float(j['format']['duration']); print(os.path.basename(f), s['width'], 'x', s['height'], s['r_frame_rate'], s['nb_read_frames'], 'frames', '%.2f s' % d, s['codec_name'], s['codec_tag_string'], '%.0f MB' % (int(j['format']['size']) / 1e6))
+    ok &= (s['nb_read_frames'] == str(N) and abs(d - SEC) < 0.05 and s['r_frame_rate'] == '24/1')
+ok &= json.loads(subprocess.run(['ffprobe', '-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=codec_tag_string', '-of', 'json', mov], capture_output=True, text=True).stdout)['streams'][0]['codec_tag_string'] == 'hvc1'
+print('PASS' if ok else 'FAIL'); sys.exit(0 if ok else 1)

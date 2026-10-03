@@ -1,0 +1,30 @@
+# 1 October 2026 : the LIGHTING CYCLE (Matthieu, 1 October 2026: "il manque le cycle d'éclairage où je peux avoir le contrôle"). Reads Scripts/light_cycle.json (frames, samples, resolution, variants of HDA parameters), renders each variant headless (hython RenderAdFrames.py on render/_ad_preview.hiplc),
+# measures the median luminance and the 99th percentile of each frame, and builds ONE comparison sheet lighting/<version>_<date>_<words>.png (first column = the reference rig). The live Houdini session is never touched.
+# Usage: python3 Scripts/LightCycle.py <version e.g. L002> <words> [--only A,B] . Save the hip first (hou.hipFile.save(); copy to render/_ad_preview.hiplc). FR : le cycle d'eclairage rejouable.
+import sys, os, json, subprocess, time
+import numpy as np
+from PIL import Image
+B = '/Users/zenray/Create/Build/Productions/ZenRayHoudini/CeramicTiles/'
+HYTHON = '/Users/zenray/Create/Build/Houdini22/Houdini22.0.368/Frameworks/Houdini.framework/Versions/Current/Resources/bin/hython'
+ver, words = sys.argv[1], sys.argv[2]; only = None
+if '--only' in sys.argv: only = sys.argv[sys.argv.index('--only') + 1].split(',')
+cfg = json.load(open(B + 'Scripts/light_cycle.json')); frames = cfg['frames']
+def lin(a): a = a / 255.0; return np.where(a <= 0.04045, a / 12.92, ((a + 0.055) / 1.055) ** 2.4)
+def stat(p):
+    L = lin(np.asarray(Image.open(p).convert('RGB'), dtype=np.float32)).mean(axis=2); return float(np.median(L)), float(np.percentile(L, 99))
+cols = ['A reference rig (01a)=' + cfg['reference']]; report = []
+for v in cfg['variants']:
+    if only and v['name'] not in only: continue
+    out = 'render/ad_preview/light_%s_%s' % (ver, v['name']); args = [HYTHON, B + 'Scripts/RenderAdFrames.py', B + 'render/_ad_preview.hiplc', B + out, str(cfg['res']), str(cfg['res']), str(cfg['spp']), ','.join(map(str, frames))]
+    for k, x in v['set'].items(): args += ['--set', '%s=%s' % (k, x)]
+    if v.get('cpu'): args.append('--cpu')
+    t = time.time(); r = subprocess.run(args, capture_output=True, text=True, cwd=B); dt = time.time() - t
+    cols.append('%s %s=%s' % (v['name'], ' '.join('%s %s' % (k.replace('studio_', ''), x) for k, x in v['set'].items() if k != 'light_rig'), out))
+    for f in frames:
+        p = B + out + '/ad_%04d.png' % f; rp = B + cfg['reference'] + '/ad_%04d.png' % f
+        if os.path.exists(p): m, q = stat(p); mr, qr = stat(rp) if os.path.exists(rp) else (0, 0); report.append({'variant': v['name'], 'frame': f, 'median': round(m, 4), 'p99': round(q, 3), 'median_vs_ref_stops': round(float(np.log2(m / mr)), 2) if mr else None, 'p99_over_median': round(q / m, 1)})
+    print('variant', v['name'], 'rendered in %.0f s' % dt, flush=True)
+os.environ['CELL'] = os.environ.get('CELL', '420')
+subprocess.run([sys.executable, B + 'Scripts/LightCompare.py', ver, words, ','.join(map(str, frames))] + cols, cwd=B)
+json.dump(report, open(B + 'lighting/%s_report.json' % ver, 'w'), indent=1)
+for x in report: print(x)

@@ -1,0 +1,9 @@
+# 2 October 2026 : read-only; prints the VEX of a few small wrangles to learn the conventions (pixel coordinates, tile maths, output layers). FR : lecture seule.
+import hou
+P = '/Users/zenray/Create/Build/Productions/ZenRayHoudini/CeramicTiles/'
+hou.hipFile.load(P + 'hip/CeramicGreen_Height_V5.hiplc', suppress_save_prompt=True, ignore_load_warnings=True)
+m = hou.node('/obj/CeramicGreen_Height')
+for name in ('E1_base__distance_from_tile_centre', 'E3_joints__distance_to_tile_edge', 'L1_roughness__glaze_and_joint_from_edge', 'N7_normal__slope_limiter', 'OD_HEIGHT__v6_as_one_grey_channel', 'U4_export__height_v6'):
+    n = m.node(name); print('=====', name, n.type().name(), 'inputs', [i.inputNode().name() if i.inputNode() else None for i in n.inputConnections()])
+    if n.parm('vexsnippet'): print(n.parm('vexsnippet').eval()[:1800])
+    else: print([ (p.name(), p.eval()) for p in n.parms() if p.eval() not in ('', 0, 0.0)][:14])

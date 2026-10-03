@@ -1,0 +1,141 @@
+# 30 September 2026 : V7 = V6 graph + a MEASURED albedo chain (section Z) so that the basecolor equals ref_basecolor.png. The colour profile across an arc (dish side and high side) and across a
+# tile joint was measured pixel by pixel on the reference with its exact geometry (Scripts/FitBasecolorGeometry.py, Scripts/MeasureBasecolorAligned.py, ref-maps/basecolor_aligned_profiles.json)
+# and is applied by ONE wrangle whose knots come from that file; the glaze is the far-floor colour plus clouds, grain and specks whose amplitudes match the measured standard deviations.
+# FR : V7 = V6 + une chaine d'albedo MESUREE (section Z) : profils de couleur en travers d'un arc et d'un joint, mesures sur la ref avec sa geometrie exacte.
+import hou, runpy, json, numpy as np
+B = '/Users/zenray/Create/Build/Productions/ZenRayHoudini/CeramicTiles/'
+G6 = runpy.run_path(B + 'Scripts/BuildCeramicGreenDetailV6.py')
+G = G6['G']                                   # the V5 globals (curve helper, colours, tidy)
+net, S = G6['net'], G6['S']
+node, vex, CURVE_FN, UV, SM = G['node'], G['vex'], G['CURVE_FN'], G6['UV'], G6['SM']
+FIT = json.load(open(B + 'ref-maps/basecolor_fit.json'))          # geometry and per-family profiles measured by Scripts/FitRefStrip.py basecolor
+Z = {
+    'far': (0.432, 0.490, 0.325),                                      # far-floor glaze colour (the profile delta is relative to it)
+    'lift': (0.037, 0.055, 0.024),                                     # lifts the glaze mean to the measured 0.406 0.472 0.314, only far from every line
+    'wobble': (150, 0.45),                                              # frequency and strength of the hand-dabbed wobble of the line width
+    # 30 September 2026 : the colour variation of the glaze is generated ALONG THE PRINCIPAL DIRECTIONS measured on the reference (Scripts: PCA of the glaze pixels in three bands, ref-maps/basecolor_pca.json);
+    # random independent red/green/blue noise gave pink and purple patches that the reference does not have. Octaves share the power of their band. FR : variation le long des directions principales mesurees.
+    'bands': {'broad': [2.5, 5, 10, 20], 'mid': [40, 80], 'fine': [200, 500, 1000]}, 'band_gain': {'broad': 0.8, 'mid': 0.45, 'fine': 0.7},
+    'speck': [(900, 0.725, 0.17), (1800, 0.745, 0.21)],
+    'tile': 0.003,
+}
+T = FIT['T']; R = FIT['R']; PARITY = FIT['parity']
+def signed_knots(rows):
+    ks, cs = [], []
+    for r in rows:
+        if r[3] is None: continue
+        ks.append((r[0] + r[1]) / 2 / T); cs.append(r[3:6])
+    cs = np.array(cs); sm = cs.copy()
+    for i in range(1, len(cs) - 1): sm[i] = 0.25 * cs[i - 1] + 0.5 * cs[i] + 0.25 * cs[i + 1]
+    ks = [-0.45] + ks + [0.45]; sm = np.vstack([np.array(Z['far']) - np.array([0.014, 0.017, 0.007]), sm, np.array(Z['far']) - np.array([0.014, 0.017, 0.007])])
+    return ks, sm
+def joint_knots(rows):
+    ks, cs = [], []
+    for r in rows:
+        if r[3] is None: continue
+        ks.append((r[0] + r[1]) / 2 / T); cs.append(r[3:6])
+    cs = np.array(cs); sm = cs.copy()
+    for i in range(1, len(cs) - 1): sm[i] = 0.25 * cs[i - 1] + 0.5 * cs[i] + 0.25 * cs[i + 1]
+    return ks, sm
+def arr(name, vals): return 'float %s[] = {%s};\n' % (name, ', '.join('%.5f' % v for v in vals))
+code = CURVE_FN + G['LAYOUT_VEX'] + UV
+for tag, rows, fn in (('CO', FIT['corner'], signed_knots), ('CE', FIT['centre'], signed_knots), ('JT', FIT['joint'], joint_knots)):
+    ks, cs = fn(rows)
+    code += arr('K' + tag, ks) + arr('R' + tag, cs[:, 0]) + arr('G' + tag, cs[:, 1]) + arr('B' + tag, cs[:, 2])
+code += '''
+// signed distance to the corner circle (A) and to the tile centre circle (B) of the quadrant, from the shared layout function (mode 0 = render 01a, 1 = strip of sheet 08)
+float dco; float dce; float dsh0;
+lay(LT01A, LC01A, tc, tr, u, v, %s, int(%s + 0.5), dco, dce, dsh0);
+float e = min(min(u, 1.0 - u), min(v, 1.0 - v));
+float wob = 1.0 + %s * 2.0 * (noise(set(@P.x * %d.0, @P.y * %d.0, 3.3)) - 0.5);
+vector fv = set(%f, %f, %f);
+float lw = max(%s, 0.0001);                                               // HDA parameter line_width
+vector da = abs(dco) < 1.0 ? set(curve_eval(dco / wob / lw, KCO, RCO), curve_eval(dco / wob / lw, KCO, GCO), curve_eval(dco / wob / lw, KCO, BCO)) - fv : {0, 0, 0};
+vector dn = abs(dce) < 1.0 ? set(curve_eval(dce / wob / lw, KCE, RCE), curve_eval(dce / wob / lw, KCE, GCE), curve_eval(dce / wob / lw, KCE, BCE)) - fv : {0, 0, 0};
+vector dj = set(curve_eval(e / wob, KJT, RJT), curve_eval(e / wob, KJT, GJT), curve_eval(e / wob, KJT, BJT)) - fv;
+vector dl = da; if (length(dn) > length(dl)) dl = dn; if (length(dj) > length(dl)) dl = dj;
+dl *= %s;                                                               // HDA parameter line_strength
+float wl = sm(0.05, 0.15, min(abs(dco), abs(dce))) * sm(0.05, 0.15, e);   // the glaze mean lift only acts far from every line
+dl += wl * set(%f, %f, %f) * %s;                                        // HDA parameter glaze_lift
+p@C = set(dl.x, dl.y, dl.z, 0.0);
+''' % (G['CH']('ring_radius'), G['CH']('layout_source'), '0.45', Z['wobble'][0], Z['wobble'][0], *Z['far'], G['CH']('line_width'), G['CH']('line_strength'), *Z['lift'], G['CH']('glaze_lift'))
+sec = 'Z  ALBEDO  measured from ref_basecolor.png: glaze, arc and joint profiles, clouds, grain, specks'
+zs = []
+def zadd(prev, name, lay):
+    n = node(net, 'blend', name, [prev, lay], mode=3); zs.append(n.name()); return n
+def zlayer(name, code_, src='E3_joints__distance_to_tile_edge'):
+    n = vex(net, name, [net.node(src)], UV + code_); zs.append(n.name()); return n
+base = vex(net, 'Z1_albedo__far_floor_glaze_colour', [net.node('E3_joints__distance_to_tile_edge')], 'p@C = set(%f, %f, %f, 1.0);   // 30 September 2026 : measured on ref_basecolor.png (input ignored on purpose)\n' % Z['far']); zs.append(base.name())
+prof = vex(net, 'Z2_albedo__measured_arc_and_joint_profile', [net.node('E3_joints__distance_to_tile_edge')], code); zs.append(prof.name())
+c = zadd(base, 'Z3_albedo__add_measured_profile', prof)
+def noise3(f, z): return 'noise(set(@P.x * %d.0, @P.y * %d.0, %f))' % (f, f, z)
+PCA = json.load(open(B + 'ref-maps/basecolor_pca.json'))
+NOISE_STD = 0.103                                                        # measured std of the VEX noise(), so (noise - 0.5) / 0.103 has unit standard deviation
+for band, freqs in Z['bands'].items():
+    K = len(freqs)
+    for d in range(3):
+        sd = PCA[band]['std'][d] * Z['band_gain'][band] / K ** 0.5; dv = PCA[band]['dirs'][d]
+        for i, f in enumerate(freqs):
+            l = zlayer(f'Z4_{band}{d}_{i}__colour_variation_along_direction_{d}_freq_{f}', 'float n = (%s - 0.5) / %f * %f * %s * %s;\np@C = set(n * %f, n * %f, n * %f, 0.0);\n' % (noise3(f, 500 + 37 * d + 5 * i + {'broad': 0, 'mid': 100, 'fine': 200}[band]), NOISE_STD, sd, G['CH']('cloud_gain' if band == 'broad' else 'mottle_gain'), (G['CH']('hue_variation') if d >= 1 else '1.0'), dv[0], dv[1], dv[2]))
+            c = zadd(c, f'Z5_{band}{d}_{i}__add_variation', l)
+# ---- Y  ARC CONTOUR : 64 diffuse layers around the arcs (feedback: "ajouter des layers diffus sur le contour des arcs, environ 64") ----------------------------------------------------------------
+# 30 September 2026, from REF_DESCRIPTION_arches.md and the zooms of 01a: the wall is bordered by a fringe of broken orange rust speckles that dissolves irregularly into the green (denser on the dish side),
+# a soft warm halo, a cool darker green right under the wall, and pale cream broken hairlines. Each layer = ONE wrangle (a zero mean colour delta, alpha 0) + ONE Add. Amplitudes * the HDA parameter fringe_gain.
+sdn = vex(net, 'Y0_arcs__signed_distance_to_the_nearest_arc_negative_inside', [net.node('E3_joints__distance_to_tile_edge')], G['LAYOUT_VEX'] + UV + 'float dA; float dB; float dsh;\nlay(LT01A, LC01A, tc, tr, u, v, %s, int(%s + 0.5), dA, dB, dsh);\nfloat sd = abs(dA) < abs(dB) ? dA : dB;\np@C = set(sd, sd, sd, 1.0);\n' % (G['CH']('ring_radius'), G['CH']('layout_source')))
+zs.append(sdn.name())
+PX = 1.0 / 407.0                                                                       # one reference pixel in tile units
+FG = G['CH']('fringe_gain')
+def Y(name, code_):
+    n = vex(net, name, [sdn], UV + 'float sd = p@C.x;\nfloat dish = sd < 0.0 ? -sd : 9.0;\nfloat high = sd >= 0.0 ? sd : 9.0;\n' + code_); zs.append(n.name()); return n
+def window(var, lo, hi): return 'sm(%f, %f, %s) * (1.0 - sm(%f, %f, %s))' % ((lo - 1.5) * PX, lo * PX, var, hi * PX, (hi + 1.5) * PX, var)
+ny = 0
+# 16 + 16 : rust speckles, dish side then high side, 4 distance bands x 4 noise scales
+for side, bands, amp0 in (('dish', [(0, 6), (6, 12), (12, 20), (20, 34)], 0.085), ('high', [(0, 4), (4, 8), (8, 14), (14, 22)], 0.050)):
+    for bi, (lo, hi) in enumerate(bands):
+        for fi, f in enumerate((150, 420, 900, 1800)):
+            amp = amp0 * (1.0 - 0.18 * bi) * (1.0 - 0.1 * fi)
+            code_ = 'float env = %s;\nfloat sp = sm(0.45, 0.80, %s) - 0.1699;   // zero mean: the measured profile already contains the mean of the speckles\nfloat k = env * sp * %f * %s;\np@C = set(k * 1.0, k * 0.22, -k * 0.30, 0.0);   // rust orange\n' % (window(side, lo, hi), noise3(f, 700 + 13 * ny), amp, FG)
+            l = Y(f'Y1_rust_{side}_b{bi}_f{f}__broken_orange_speckles_{lo}_{hi}px', code_); c = zadd(c, f'Y2_rust_{side}_b{bi}_f{f}__add_rust', l); ny += 1
+# 8 : soft warm halo on the dish side, widening bands, slow noise
+for bi in range(8):
+    lo, hi = 2 + 6 * bi, 14 + 10 * bi
+    code_ = 'float env = %s;\nfloat n = noise(set(@P.x * %d.0, @P.y * %d.0, %f)) * 1.6 - 0.80;   // zero mean\nfloat k = env * n * %f * %s;\np@C = set(k * 0.85, k * 0.55, k * 0.15, 0.0);   // warm tan\n' % (window('dish', lo, hi), 4 + 2 * bi, 4 + 2 * bi, 760 + bi, 0.05 - 0.004 * bi, FG)
+    l = Y(f'Y3_halo{bi}__soft_warm_halo_on_the_dish_side_{lo}_{hi}px', code_); c = zadd(c, f'Y4_halo{bi}__add_warm_halo', l); ny += 1
+# 8 : cool darker green right under the wall on the dish side (the shadow the wall casts in the reference)
+for bi in range(8):
+    lo, hi = 1 + 4 * bi, 10 + 7 * bi
+    code_ = 'float env = %s;\nfloat n = noise(set(@P.x * %d.0, @P.y * %d.0, %f)) - 0.50;   // zero mean\nfloat k = env * n * %f * %s;\np@C = set(-k * 0.30, -k * 0.20, -k * 0.08, 0.0);   // cooler, darker\n' % (window('dish', lo, hi), 6 + 3 * bi, 6 + 3 * bi, 790 + bi, 0.09 - 0.007 * bi, FG)
+    l = Y(f'Y5_shade{bi}__cool_shadow_under_the_wall_{lo}_{hi}px', code_); c = zadd(c, f'Y6_shade{bi}__add_cool_shadow', l); ny += 1
+# 8 : pale cream broken hairlines at the top edge of the wall and at its foot, both sides
+for side in ('dish', 'high'):
+    for bi, (lo, hi) in enumerate([(0, 1.6), (2.4, 4.0)]):
+        for fi, f in enumerate((300, 900)):
+            code_ = 'float env = %s;\nfloat br = sm(0.30, 0.62, %s) - 0.6238;   // zero mean\nfloat k = env * br * %f * %s;\np@C = set(k * 0.30, k * 0.26, k * 0.15, 0.0);   // cream\n' % (window(side, lo, hi), noise3(f, 820 + 7 * ny), 0.20 if bi == 0 else 0.11, FG)
+            l = Y(f'Y7_hair_{side}_b{bi}_f{f}__cream_broken_hairline', code_); c = zadd(c, f'Y8_hair_{side}_b{bi}_f{f}__add_cream', l); ny += 1
+# 8 : anisotropic (stretched) orange streaks along the contour on both sides, like hand brushed glaze
+for si in range(8):
+    f1, f2 = (60, 600) if si % 2 == 0 else (600, 60)
+    side = 'dish' if si < 4 else 'high'
+    code_ = 'float env = %s;\nfloat n = noise(set(@P.x * %d.0, @P.y * %d.0, %f)) - 0.50;   // zero mean\nfloat k = env * n * %f * %s;\np@C = set(k * 0.80, k * 0.30, -k * 0.10, 0.0);\n' % (window(side, 0, 12 + 4 * (si % 4)), f1, f2, 850 + si, 0.06, FG)
+    l = Y(f'Y9_streak{si}__brushed_orange_streaks_{side}', code_); c = zadd(c, f'YA_streak{si}__add_brushed_streaks', l); ny += 1
+print('contour layers added:', ny)
+assert ny == 64, ny
+for i, (f, cut, a) in enumerate(Z['speck']):
+    l = zlayer(f'Z8_speck{i}__white_micro_specks_{f}', 'float s = sm(%f + %s, %f + %s, %s) * %f;\np@C = set(s, s, s * 0.95, 0.0);\n' % (cut, '0.0', cut + 0.02, '0.0', noise3(f, 540 + i), a))
+    c = zadd(c, f'Z9_speck{i}__add_specks', l)
+for r in range(4):
+    for cc in range(4):
+        l = zlayer(f'ZA_tile_r{r}c{cc}__lightness', 'float k = 0.0;\nif (tc == %d && tr == %d) k = (rand(%d.0 * 7.13 + %d.0 * 3.71 + 77.5) - 0.5) * %f * 2.0;\np@C = set(k, k, k * 0.85, 0.0);\n' % (cc, r, cc, r, Z['tile']))
+        c = zadd(c, f'ZB_tile_r{r}c{cc}__add_lightness', l)
+zout = node(net, 'null', 'ZC_BASECOLOR__ceramic_green_v7', [c]); zs.append(zout.name())
+# rewire the final basecolor and its export to the measured albedo
+net.node('FINAL_3_BASECOLOR').setInput(0, zout); net.node('U4_export__basecolor_v6').setInput(0, zout)
+S[sec] = zs
+G['COLORS']['Z'] = (0.90, 0.75, 0.45)
+# lay out the Z nodes in their own box under the last column
+x0 = max(n.position().x() for n in net.children() if not n.name() in zs) + 4
+box = net.createNetworkBox(); box.setComment(sec); box.setColor(hou.Color((0.90, 0.75, 0.45)))
+for i, nm in enumerate(zs):
+    n = net.node(nm); n.setPosition(hou.Vector2(x0 + (i // 12) * 3.2, -(i % 12) * 1.1)); n.setColor(hou.Color((0.90, 0.75, 0.45))); box.addItem(n)
+box.fitAroundContents()
+result = len(net.children())

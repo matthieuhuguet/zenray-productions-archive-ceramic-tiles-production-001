@@ -1,0 +1,26 @@
+# 1 October 2026 : answers "is Karma XPU really the best engine, and what do more rays buy?" by MEASUREMENT on one frame of the studio rig. Renders frame <f> (default 481) with: XPU at 16, 64 and 256 samples per pixel, and the pure CPU delegate at 16 and 64 (headless hython RenderAdFrames.py, light_rig = 1),
+# then prints the time of each render, the noise (RMS of the difference with the 256 sample XPU image, in linear light, over the disc of the sphere) and the difference of CPU against XPU at equal samples. Writes lighting/engine_test_report.json. Usage: python3 Scripts/EngineTest.py [frame] [resolution]
+# FR : mesure XPU contre CPU et l'effet du nombre d'echantillons sur une image.
+import sys, os, json, subprocess, time
+import numpy as np
+from PIL import Image
+B = '/Users/zenray/Create/Build/Productions/ZenRayHoudini/CeramicTiles/'
+HYTHON = '/Users/zenray/Create/Build/Houdini22/Houdini22.0.368/Frameworks/Houdini.framework/Versions/Current/Resources/bin/hython'
+f = int(sys.argv[1]) if len(sys.argv) > 1 else 481; res = int(sys.argv[2]) if len(sys.argv) > 2 else 768
+RUNS = [('xpu16', 16, False), ('xpu64', 64, False), ('xpu256', 256, False), ('cpu16', 16, True), ('cpu64', 64, True)]
+if 'xpu' in sys.argv[3:]: RUNS = RUNS[:3]      # XPU only (the CPU runs are slow and were measured once)
+def lin(a): a = a / 255.0; return np.where(a <= 0.04045, a / 12.92, ((a + 0.055) / 1.055) ** 2.4)
+out = {}
+for name, spp, cpu in RUNS:
+    d = B + 'render/ad_preview/engine_test/' + name; os.makedirs(d, exist_ok=True)
+    if os.path.exists(d + '/ad_%04d.png' % f): os.remove(d + '/ad_%04d.png' % f)
+    args = [HYTHON, B + 'Scripts/RenderAdFrames.py', B + 'render/_ad_preview.hiplc', d, str(res), str(res), str(spp), str(f), '--set', 'light_rig=1'] + (['--cpu'] if cpu else [])
+    t = time.time(); r = subprocess.run(args, capture_output=True, text=True, cwd=B); out[name] = {'spp': spp, 'cpu': cpu, 'seconds': round(time.time() - t, 1), 'ok': os.path.exists(d + '/ad_%04d.png' % f)}
+    print(name, out[name], flush=True)
+def img(n): return lin(np.asarray(Image.open(B + 'render/ad_preview/engine_test/%s/ad_%04d.png' % (n, f)).convert('RGB'), dtype=np.float32))
+h = w = res; yy, xx = np.mgrid[0:h, 0:w]; m = ((yy - h / 2) ** 2 + (xx - w / 2) ** 2) < (0.30 * w) ** 2
+ref = img('xpu256')
+for n in out:
+    if out[n]['ok']:
+        a = img(n); out[n]['rms_vs_xpu256'] = round(float(np.sqrt(((a - ref)[m] ** 2).mean())), 4); out[n]['mean_lum_disc'] = round(float(a[m].mean()), 4)
+json.dump(out, open(B + 'lighting/engine_test_report.json', 'w'), indent=1); print(json.dumps(out, indent=1))

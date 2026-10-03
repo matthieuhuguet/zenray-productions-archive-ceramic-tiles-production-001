@@ -1,0 +1,39 @@
+# 30 September 2026 : least-squares fit of the REAL height map (sheet 08, grey glow column) as
+#   h = base(edge distance) + a*u + b*v + sum over the 4 corner arcs of  f_kind(|d_c - R|)
+# with one halo function f_strong for the three full arcs and one f_weak for the fourth, halos ADDED (measured: arc crossings clip to 1.0).
+# Pattern read from julien-delannoy-pattern.gif (30 September 2026): ring + three quarter discs, distance gradient around each arc,
+# pyramid gradient of the tile, everything added, then repeated 2 x 2. Output: fit_height.json with the knots and values.
+# FR : ajustement des moindres carres de la vraie height ; halos additionnes, un profil pour les arcs pleins et un pour le faible.
+import numpy as np, json
+from PIL import Image
+D = '/Users/zenray/Create/Build/Productions/ZenRayHoudini/CeramicTiles/ref-maps'
+h = np.asarray(Image.open(D + '/ref_height.png').convert('L')).astype(np.float64) / 255
+H, W = h.shape; T = 408.25; X0 = 325.0 - T; R = 0.4975
+K = np.array([0, .004, .009, .015, .022, .03, .04, .052, .066, .082, .1, .125, .155, .19, .23, .28, .34, .42, .52, 0.75])   # halo knots (tile units)
+E = np.array([0, .0025, .005, .0075, .012, .02, .04, .08, .16, .3, .5])                                                     # edge-distance knots
+def hats(x, knots):                       # piecewise-linear basis, one column per knot
+    x = np.clip(x, knots[0], knots[-1]); M = np.zeros((x.size, knots.size))
+    i = np.clip(np.searchsorted(knots, x) - 1, 0, knots.size - 2); t = (x - knots[i]) / (knots[i + 1] - knots[i])
+    M[np.arange(x.size), i] = 1 - t; M[np.arange(x.size), i + 1] = t; return M
+rows = []; ys = []
+Y, X = np.mgrid[0:H, 0:W]
+for row in range(4):
+    y0 = row * T; sel = (X >= 3) & (X <= W - 3) & (Y >= y0 + 1) & (Y <= y0 + T - 1) & (X % 2 == 0) & (Y % 2 == 0)
+    x = X[sel].astype(float); y = Y[sel].astype(float); u = (x - X0) / T; v = (y - y0) / T
+    weak = 'TL' if row % 2 == 0 else 'BR'
+    cols = [hats(np.minimum.reduce([u, 1 - u, v, 1 - v]), E), u[:, None], v[:, None]]
+    fs = np.zeros((x.size, K.size)); fw = np.zeros((x.size, K.size))
+    for c, (cu, cv) in {'TL': (0, 0), 'TR': (1, 0), 'BL': (0, 1), 'BR': (1, 1)}.items():
+        d = np.abs(np.hypot(u - cu, v - cv) - R); (fw if c == weak else fs).__iadd__(hats(d, K))
+    rows.append(np.hstack(cols + [fs, fw])); ys.append(h[sel])
+A = np.vstack(rows); b = np.concatenate(ys)
+reg = 1e-4 * np.eye(A.shape[1]); sol = np.linalg.solve(A.T @ A + reg, A.T @ b)
+pred = A @ sol; res = b - pred
+print('samples', b.size, 'unknowns', A.shape[1], ' RMS residual %.4f  R2 %.4f  corr %.4f' % (res.std(), 1 - res.var() / b.var(), np.corrcoef(pred, b)[0, 1]))
+ne, nk = E.size, K.size
+out = {'edge_knots': E.tolist(), 'edge_values': sol[:ne].tolist(), 'slope_u': float(sol[ne]), 'slope_v': float(sol[ne + 1]),
+       'halo_knots': K.tolist(), 'strong': sol[ne + 2:ne + 2 + nk].tolist(), 'weak': sol[ne + 2 + nk:].tolist(), 'radius': R, 'rms': float(res.std())}
+json.dump(out, open(D + '/fit_height.json', 'w'))
+print('edge  :', ' '.join('%.3f:%.3f' % (e, v) for e, v in zip(E, out['edge_values'])), ' slope u %.3f v %.3f' % (out['slope_u'], out['slope_v']))
+print('strong:', ' '.join('%.3f:%.3f' % (k, v) for k, v in zip(K, out['strong'])))
+print('weak  :', ' '.join('%.3f:%.3f' % (k, v) for k, v in zip(K, out['weak'])))

@@ -1,0 +1,8 @@
+# 1 October 2026 : hython. Exports an ASYMMETRIC box (x 0..1 m, y 0..2 m, z 0..3 m, all positive) to unreal/AxisTest.fbx with the same FBX settings as the meshes of the commercial, to measure how the Unreal FBX importer maps the Houdini axes (bounds read back in the editor). FR : mesure du changement d'axes Houdini vers Unreal.
+import hou, os
+OUT = '/Users/zenray/Create/Build/Productions/ZenRayHoudini/CeramicTiles/unreal/'
+os.makedirs(OUT, exist_ok=True)
+g = hou.node('/obj').createNode('geo', 'AxisTest'); b = g.createNode('box'); b.parmTuple('size').set((1, 2, 3)); b.parmTuple('t').set((0.5, 1, 1.5))
+n = g.createNode('normal'); n.setInput(0, b); n.setDisplayFlag(True); n.setRenderFlag(True)
+rop = hou.node('/out').createNode('filmboxfbx', 'fbx_axis'); rop.parm('startnode').set(g.path()); rop.parm('sopoutput').set(OUT + 'AxisTest.fbx'); rop.parm('convertunits').set(1); rop.render()
+print('exported', os.path.getsize(OUT + 'AxisTest.fbx'), 'bytes')

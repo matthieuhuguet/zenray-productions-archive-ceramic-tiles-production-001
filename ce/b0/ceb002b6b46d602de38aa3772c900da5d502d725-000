@@ -1,0 +1,53 @@
+# 30 September 2026 : model based fit of the light direction for the reflections, no render. Step 1 checks the normal convention on the DIFFUSE shading of a real render (Lambert with the key light against the luminance of the frame);
+# step 2 finds the direction of a soft specular light whose predicted highlights (half vector against the normal map) overlap the bright low saturation pixels of 01a best.
+# World: Y up, plane in XZ, camera above looking down -Y with image right = +X and image up = -Z. FR : ajustement hors rendu de la direction de la lumiere speculaire.
+import sys, json, numpy as np
+from PIL import Image
+from scipy import ndimage as ndi
+B = '/Users/zenray/Create/Build/Productions/ZenRayHoudini/CeramicTiles/'
+frame = sys.argv[1] if len(sys.argv) > 1 else 'render/frames/CeramicGreen_V6_frame_082.png'
+R = 480
+def load_small(path, size=R): return np.asarray(Image.open(path).convert('RGB').resize((size, size), Image.LANCZOS), float) / 255
+N = np.asarray(Image.open(B + 'render/CeramicGreen_V6_normal.png').convert('RGB').resize((R, R), Image.LANCZOS), float) / 255 * 2 - 1
+ref = load_small(B + '01a-julien-delannoy-10-left.png'); mine = load_small(B + frame)
+lum = lambda a: (a * [0.2126, 0.7152, 0.0722]).sum(2)
+def world_normal(flip_y, flip_x=False):
+    tx, ty, tz = N[..., 0] * (-1 if flip_x else 1), N[..., 1] * (-1 if flip_y else 1), np.clip(N[..., 2], 0.05, 1)
+    n = np.stack([tx, tz, -ty], -1); return n / np.linalg.norm(n, axis=2, keepdims=True)
+Lkey = np.array([-0.287, 0.9272, 0.2408]); Lkey /= np.linalg.norm(Lkey)
+blur = lambda x, s=3: ndi.gaussian_filter(x, s)
+best = None
+print('step 1: normal convention against the diffuse shading of', frame)
+for fy in (False, True):
+    for fx in (False, True):
+        n = world_normal(fy, fx); lam = np.clip(n @ Lkey, 0, 1)
+        c = np.corrcoef(blur(lam).ravel(), blur(lum(mine)).ravel())[0, 1]
+        print('  flip_y', fy, 'flip_x', fx, 'corr Lambert vs render', round(c, 3))
+        if best is None or c > best[0]: best = (c, fy, fx)
+_, FY, FX = best; print('  chosen convention flip_y', FY, 'flip_x', FX)
+n = world_normal(FY, FX)
+# bright low saturation pixels of the reference: the reflections
+mx, mn = ref.max(2), ref.min(2); sat = (mx - mn) / (mx + 1e-6); L = lum(ref)
+gl = ((L > 0.40) & (sat < 0.40)).astype(float)
+glb = blur(gl, 4)
+print('step 2: reflection mask of 01a, fraction', round(gl.mean(), 4))
+V = np.array([0.0, 1.0, 0.0])
+res = []
+for el in range(8, 86, 3):
+    for az in range(0, 360, 6):
+        a, e = np.radians(az), np.radians(el)
+        Ls = np.array([np.cos(e) * np.cos(a), np.sin(e), np.cos(e) * np.sin(a)])   # toward the light, x = +X (image right), z = +Z (image down)
+        H = Ls + V; H /= np.linalg.norm(H); ch = np.clip(n @ H, 0, 1)
+        for s in (0.004, 0.012, 0.03):
+            pred = np.exp(-(1 - ch) / s)
+            c = np.corrcoef(blur(pred, 4).ravel(), glb.ravel())[0, 1]
+            res.append((c, az, el, s))
+res.sort(reverse=True)
+print('top 8 (corr, azimuth deg from image right toward image down, elevation, width):')
+for r in res[:8]: print('  ', [round(x, 3) for x in r])
+json.dump({'flip_y': FY, 'flip_x': FX, 'top': res[:20], 'key_diffuse_corr': best[0]}, open(B + 'ref-maps/spec_light_fit.json', 'w'))
+c, az, el, s = res[0]; a, e = np.radians(az), np.radians(el)
+Ls = np.array([np.cos(e) * np.cos(a), np.sin(e), np.cos(e) * np.sin(a)]); H = Ls + V; H /= np.linalg.norm(H); pred = np.exp(-(1 - np.clip(n @ H, 0, 1)) / s)
+out = np.concatenate([np.stack([glb / max(glb.max(), 1e-6)] * 3, -1), np.stack([pred / max(pred.max(), 1e-6)] * 3, -1)], 1)
+Image.fromarray((out * 255).astype(np.uint8)).save(B + 'ref-maps/spec_light_fit_preview.png')
+print('best light toward-vector', Ls.round(3), 'preview saved')

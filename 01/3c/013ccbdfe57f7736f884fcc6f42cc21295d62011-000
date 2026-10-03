@@ -1,0 +1,20 @@
+# 1 October 2026 : closes the calibration loop of the Unreal version of the commercial. For a Houdini frame (default 1) it rebuilds the Unreal level with the current unreal/ue_params.json, takes the Unreal screenshot from the same camera, compares the median luminance with the Houdini final frame
+# and moves exposure_ev by the measured number of stops, until the correction is under 0.1 stop (at most 4 rounds). Usage: python3 Scripts/CalibrateUe.py [frame = 1] [houdini folder = render/final] [disc]. FR : boucle de calibration de l'exposition Unreal contre Houdini.
+import sys, os, json, subprocess, time, numpy as np
+B = '/Users/zenray/Create/Build/Productions/ZenRayHoudini/CeramicTiles/'
+frame = int(sys.argv[1]) if len(sys.argv) > 1 else 1; hdir = B + (sys.argv[2] if len(sys.argv) > 2 else 'render/final'); disc = len(sys.argv) > 3
+PJ = B + 'unreal/ue_params.json'
+def run(script, timeout=600): r = subprocess.run([sys.executable, B + 'Scripts/UeQueue.py', B + script, str(timeout)], capture_output=True, text=True); return r.stdout
+for rnd in range(4):
+    print(run('unreal/ue_build_level.py').strip().split('\n')[-1], flush=True)
+    out = B + 'unreal/probe/f%04d.png' % frame
+    if os.path.exists(out): os.remove(out)
+    json.dump({'frame': frame, 'res': 1024, 'out': out}, open(B + 'unreal/probe.json', 'w')); print(run('unreal/ue_probe_shot.py', 120).strip().split('\n')[-1][:100], flush=True)
+    t0 = time.time()
+    while not os.path.exists(out) and time.time() - t0 < 120: time.sleep(1)
+    time.sleep(2)
+    c = subprocess.run([sys.executable, B + 'Scripts/CompareUeHou.py', out, hdir + '/ad_%04d.png' % frame] + (['disc'] if disc else []), capture_output=True, text=True).stdout; print(c, flush=True)
+    corr = float(c.split('stops')[0].split()[-1]) if 'stops' in c else 0.0
+    P = json.load(open(PJ))
+    if abs(corr) < 0.1: print('calibrated: exposure_ev = %.2f' % P['exposure_ev']); break
+    P['exposure_ev'] = round(P['exposure_ev'] + corr, 3); json.dump(P, open(PJ, 'w'), indent=2); print('exposure_ev ->', P['exposure_ev'], flush=True)

@@ -1,0 +1,11 @@
+# 1 October 2026 : headless export of the six maps (and the three colour sets of the basecolor) at ANOTHER resolution, to test whether the fused graph is resolution independent (4096 maps for the 4096 frames of the commercial) without touching the live session.
+# Usage: hython ExportMapsAtRes.py <hip> <resolution> <output folder>. The graph canvas is res1 x res2 (default 1920); it writes <folder>/CeramicGreen_V6_<map>.png for height, normal, basecolor, roughness, reflect, ao. FR : export des cartes a une autre resolution, hors session.
+import hou, sys, os, time
+hip, res, outdir = sys.argv[1], int(sys.argv[2]), os.path.abspath(sys.argv[3]); os.makedirs(outdir, exist_ok=True)
+hou.hipFile.load(os.path.abspath(hip), suppress_save_prompt=True, ignore_load_warnings=True)
+net = hou.node('/obj/CeramicGreen_Height'); net.parm('res1').set(res); net.parm('res2').set(res)
+t0 = time.time()
+for s in ('height', 'normal', 'basecolor', 'roughness', 'reflect', 'ao'):
+    ex = net.node('U4_export__%s_v6' % s); ex.parm('copoutput').set(os.path.join(outdir, 'CeramicGreen_V6_%s.png' % s)); t = time.time(); ex.parm('execute').pressButton()
+    print(s, 'errors', list(ex.errors())[:1], 'exists', os.path.exists(os.path.join(outdir, 'CeramicGreen_V6_%s.png' % s)), 'took %.1f s' % (time.time() - t), flush=True)
+print('total %.1f s at %d' % (time.time() - t0, res), flush=True)

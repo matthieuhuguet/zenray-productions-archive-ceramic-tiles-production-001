@@ -1,0 +1,15 @@
+#!/bin/bash
+# 2 October 2026 : exports the six maps of the four variants of the master hip at a given resolution into maps/<variant>/ and writes a relit preview sheet next to them. Usage: Scripts/ExportVariantMaps.sh <hip> [res=2048] [exposure=2.0]. FR : exporte les cartes des quatre variantes.
+B=/Users/zenray/Create/Build/Productions/ZenRayHoudini/CeramicTiles
+HY=/Users/zenray/Create/Build/Houdini22/Houdini22.0.368/Frameworks/Houdini.framework/Versions/Current/Resources/bin/hython
+HIP=${1:-$B/CeramicTiles.hiplc}; RES=${2:-2048}; EXP=${3:-2.0}
+cd "$B" || exit 1
+while read -r IDX NAME REF; do
+  $HY Scripts/CookVariant.py "$HIP" "$IDX" "$RES" "maps/$NAME" 2>&1 | tail -1
+  python3 Scripts/PreviewVariant.py "maps/$NAME" "$REF" "maps/$NAME/preview.png" "$EXP" 1 | tail -1
+done <<LIST
+0 01a_green_lenses ref/01a-julien-delannoy-10-left.png
+1 01b_pillow_tiles ref/01b-julien-delannoy-10-right.png
+2 02a_serpentine_arcs ref/02a-julien-delannoy-11-left.png
+3 02b_terracotta_bowls ref/02b-julien-delannoy-11-right.png
+LIST

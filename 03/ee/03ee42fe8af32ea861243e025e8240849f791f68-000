@@ -1,0 +1,19 @@
+# 1 October 2026 : builds the Unreal version of the Ceramic Tiles commercial in the ZenRayShards project, in order and with a stop at the first error: (0) Houdini export (hython, ExportForUnreal.py) unless --no-export,
+# (1) assets: textures, meshes, master material and instances (unreal/ue_build_assets.py), (2) level: objects, cycloramas, lights, post process, Lumen (unreal/ue_build_level.py), (3) sequence: cameras, cuts, animation (unreal/ue_build_sequence.py).
+# Everything is IDEMPOTENT and works IN PLACE: no asset is ever deleted (an asset in use cannot be unloaded: ForceDeleteObjects fails, the package is corrupt, an Overwrite dialog freezes the editor, found 1 October 2026). The editor must be open (Scripts/unreal_guard.py ensure of the ZenRayShards project).
+# Usage: python3 Scripts/BuildUnrealAd.py [--no-export] [--only assets|level|sequence]. FR : construit la pub dans Unreal, dans l'ordre, arret a la premiere erreur, sans jamais supprimer un asset utilise.
+import sys, subprocess, os
+B = '/Users/zenray/Create/Build/Productions/ZenRayHoudini/CeramicTiles/'
+HYTHON = '/Users/zenray/Create/Build/Houdini22/Houdini22.0.368/Frameworks/Houdini.framework/Versions/Current/Resources/bin/hython'
+only = sys.argv[sys.argv.index('--only') + 1] if '--only' in sys.argv else None
+def run(label, args):
+    r = subprocess.run(args, capture_output=True, text=True, cwd=B); out = (r.stdout or '') + (r.stderr or '')
+    ok = r.returncode == 0 and not out.startswith('ERROR') and 'Traceback' not in out
+    print(('PASS ' if ok else 'FAIL ') + label); 
+    if not ok: print(out[-1500:]); sys.exit(1)
+    return out
+if '--no-export' not in sys.argv and only is None: run('export from Houdini', [HYTHON, B + 'Scripts/ExportForUnreal.py'])
+for name, script in (('assets', 'ue_build_assets.py'), ('level', 'ue_build_level.py'), ('sequence', 'ue_build_sequence.py')):
+    if only and only != name: continue
+    out = run(name, [sys.executable, B + 'Scripts/UeQueue.py', B + 'unreal/' + script, '1200']); print('   ' + out.strip().split('\n')[-1][:150])
+print('Unreal commercial built')

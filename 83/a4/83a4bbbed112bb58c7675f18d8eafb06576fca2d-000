@@ -1,0 +1,21 @@
+# 2 October 2026 : finds the tile grid (pitch and offset in pixels) of a reference by the dark hairlines of the joints, along x and y. Usage: python3 Scripts/AnalyzeGrid.py <ref.png> [expected tiles]. FR : mesure la grille de carreaux d'une reference.
+import sys, numpy as np
+from PIL import Image
+from scipy import ndimage as ndi
+im = np.asarray(Image.open(sys.argv[1]).convert('RGB'), np.float32) / 255.0; lum = im @ np.array([0.2126, 0.7152, 0.0722], np.float32); H, W = lum.shape
+hp = ndi.gaussian_filter(lum, 5) - ndi.gaussian_filter(lum, 0.8)       # thin dark structures are positive
+exp = int(sys.argv[2]) if len(sys.argv) > 2 else 6
+for axis, name in ((0, 'x (columns)'), (1, 'y (rows)')):
+    prof = np.clip(hp, 0, None).mean(axis=axis); prof = ndi.gaussian_filter1d(prof, 1.5)
+    # candidate pitch from the autocorrelation
+    p = prof - prof.mean(); ac = np.correlate(p, p, 'full')[len(p) - 1:]; lo, hi = int(W / (exp + 2)), int(W / (exp - 2))
+    pitch = lo + int(np.argmax(ac[lo:hi])); 
+    # refine: best offset and pitch maximising the comb energy
+    best = (-1, 0, 0)
+    for pt in np.arange(pitch - 6, pitch + 6.01, 0.25):
+        for off in np.arange(0, pt, 1.0):
+            xs = off + pt * np.arange(0, int((W - off) / pt) + 1); xs = xs[(xs > 6) & (xs < W - 7)].astype(int)
+            e = prof[xs].mean() if len(xs) else 0
+            if e > best[0]: best = (e, pt, off)
+    e, pt, off = best; xs = off + pt * np.arange(0, int((W - off) / pt) + 1)
+    print('%s: pitch %.2f px, offset %.1f px, comb energy %.4f, lines at %s' % (name, pt, off, e, [round(x) for x in xs if 0 < x < W]))

@@ -1,0 +1,13 @@
+# 1 October 2026 : compares two sets of the six maps in render/scratch (default: orig_* = the 1226 node original exported by hython, against cand_* = the candidate graph). Usage: CompareMaps.py [refprefix] [newprefix]
+import sys, numpy as np
+from PIL import Image
+B = '/Users/zenray/Create/Build/Productions/ZenRayHoudini/CeramicTiles/render/scratch/'
+ref = sys.argv[1] if len(sys.argv) > 1 else 'orig'; new = sys.argv[2] if len(sys.argv) > 2 else 'cand'
+bad = False
+for s in ('height', 'normal', 'basecolor', 'roughness', 'reflect', 'ao'):
+    a = np.asarray(Image.open(B + f'{ref}_{s}.png'), float); b = np.asarray(Image.open(B + f'{new}_{s}.png'), float)
+    d = np.abs(a - b); dm = d.max(2) if d.ndim == 3 else d; n2 = int((dm > 2).sum())
+    flag = 'OK ' if n2 <= 30 and (dm > 0).mean() < 0.02 else 'BAD'
+    if flag == 'BAD': bad = True
+    print(f'{flag} {s:10s} differing {(dm > 0).mean():.5f}  >2/255: {n2:6d}  max {dm.max():.0f}')
+print('VERDICT:', 'REGRESSION' if bad else 'maps identical to the reference (float rounding only)')

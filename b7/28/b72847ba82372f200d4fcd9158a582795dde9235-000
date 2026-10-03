@@ -1,0 +1,126 @@
+# 1 October 2026 : node budget. FUSES every accumulation chain  acc -> blend(add) -> blend(add) ...  whose layers are wranglers into ONE wrangle per input source (the layer codes are run one after the other inside the same wrangle and
+# summed), then adds the few fused results with a handful of blends. The sum is the same operation, so the maps must stay identical (checked by exporting the six maps before and after and comparing them: tools/CompareMaps below).
+# Measured on the ceramic tiles graph: 1226 nodes -> see the report this script prints. The shared preamble of the layers (helper functions, tile coordinates) is the longest common run of lines at the top of the snippets and is written once.
+# Usage inside Houdini:  FUSE = {'dry': True}; runpy.run_path('.../FuseAddChains.py')   (dry run prints the plan only)
+# FR : fusionne chaque chaine d'additions en un wrangle par source ; meme somme, donc memes cartes ; le preambule commun est ecrit une fois.
+import hou, collections
+NET = '/obj/CeramicGreen_Height'
+net = hou.node(NET)
+DRY = bool(globals().get('FUSE', {}).get('dry', True))
+PHASE = globals().get('FUSE', {}).get('phase', 'create')      # 'create' builds the fused nodes NEXT TO the originals, 'commit' rewires the consumers and deletes the originals
+ONLY = globals().get('FUSE', {}).get('only')         # optional list of chain indices
+report = []
+if globals().get('FUSE', {}).get('phase', 'create') == 'create' and not globals().get('FUSE', {}).get('dry', True):
+    for _n in [n for n in net.children() if n.name().startswith('FZ')]: _n.destroy()
+def mode_of(n):
+    try: return n.parm('mode').eval()
+    except Exception: return None
+blends = [n for n in net.children() if n.type().name() == 'blend' and not n.name().startswith('FZ')]
+addb = [b for b in blends if mode_of(b) == 3]
+isadd = {b.name() for b in addb}
+def single_out(n): return len(n.outputs()) == 1
+linked = {b.name() for b in addb if b.inputs() and b.inputs()[0] is not None and b.inputs()[0].name() in isadd and single_out(b.inputs()[0])}
+heads = [b for b in addb if b.name() not in linked]
+chains = []
+for h in heads:
+    ch = [h]; cur = h
+    while single_out(cur) and cur.outputs()[0].name() in linked and cur.outputs()[0].inputs()[0] == cur:
+        cur = cur.outputs()[0]; ch.append(cur)
+    chains.append(ch)
+chains.sort(key=lambda c: -len(c))
+def lcp_lines(snips):
+    split = [s.split('\n') for s in snips]
+    n = min(len(x) for x in split); k = 0
+    while k < n and all(x[k] == split[0][k] for x in split): k += 1
+    return k
+import re
+def strip_comments(t): return re.sub(r'//[^\n]*', '', t)
+def split_statements(t):
+    """top-level statements of a VEX preamble: ('func', text) for function definitions, ('decl', text) for statements ending with ';'"""
+    t = strip_comments(t); out = []; cur = ''; depth = 0; i = 0
+    while i < len(t):
+        c = t[i]; cur += c
+        if c in '({[': depth += 1
+        elif c in ')}]': depth -= 1
+        if depth == 0 and c == ';':
+            out.append(('decl', cur.strip())); cur = ''
+        elif depth == 0 and c == '}':
+            rest = t[i + 1:].lstrip()
+            if not rest.startswith(';') and not rest.startswith(','):
+                head = cur.strip()
+                kind = 'stmt' if re.match(r'^(if|for|while|foreach)\b', head) else 'func'
+                out.append((kind, head)); cur = ''
+        i += 1
+    if cur.strip(): out.append(('decl', cur.strip()))
+    return out
+def decl_name(stmt):
+    m = re.match(r'^[A-Za-z_][\w]*\s+([A-Za-z_]\w*)\s*(\[\s*\])?\s*(=|;)', stmt)
+    return (m.group(1), bool(m.group(2))) if m else (None, False)
+def mutated(name, bodies):
+    pat = re.compile(r'(?<![\w@])' + re.escape(name) + r'\s*(=(?!=)|\+=|-=|\*=|/=|\+\+|--)')
+    return any(pat.search(b) for b in bodies)
+total_removed = 0; total_added = 0; created = {}
+for ci, ch in enumerate(chains):
+    if ONLY is not None and ci not in ONLY: continue
+    layers = [b.inputs()[1] if len(b.inputs()) > 1 else None for b in ch]
+    ok = all(l is not None for l in layers)
+    groups = collections.OrderedDict()
+    singles = []
+    for l in layers:
+        if l is None: continue
+        if l.type().name() == 'wrangle' and len(l.outputs()) == 1:
+            key = tuple(i.name() if i else None for i in l.inputs()) + (l.parm('type1').eval(),)
+            groups.setdefault(key, []).append(l)
+        else:
+            singles.append(l)
+    plan = [(k, len(v)) for k, v in groups.items()]
+    report.append((ci, len(ch), plan, len(singles)))
+    if DRY or not ok: continue
+    A0 = ch[0].inputs()[0]; final = ch[-1]
+    if PHASE == 'create':
+        new_terms = []
+        for gi, (key, ls) in enumerate(groups.items()):
+            snips = [l.parm('vexsnippet').eval() for l in ls]
+            k = lcp_lines(snips) if len(ls) > 1 else 0
+            pre = '\n'.join(snips[0].split('\n')[:k])
+            bodies = ['\n'.join(sn.split('\n')[k:]) for sn in snips]
+            top, per_block = [], []
+            for kind, st in split_statements(pre):
+                if kind == 'func': top.append(st); continue
+                nm, is_arr = decl_name(st)
+                if nm is not None and not is_arr and mutated(nm, bodies): per_block.append(st)     # state that a body changes: re-initialised for every layer
+                else: top.append(st)
+            blocks = ['vector4 C0 = p@C;\nvector4 ACC = set(0.0, 0.0, 0.0, 0.0);']
+            for b in bodies:
+                blocks.append('{\n    p@C = C0;\n    ' + '\n    '.join(per_block) + '\n' + b + '\n    ACC += p@C;\n}')
+            code = '// 1 October 2026 : %d layers fused (FuseAddChains.py)\n' % len(ls) + '\n'.join(top) + '\n' + '\n'.join(blocks) + '\np@C = ACC;\n'
+            fn = net.createNode('wrangle', 'FZ%02d_%d_fused_%d_layers' % (ci, gi, len(ls)))
+            for ii, nm in enumerate(key[:-1]):
+                if nm: fn.setInput(ii, net.node(nm))
+            fn.parm('type1').set(key[-1]); fn.parm('vexsnippet').set(code)
+            fn.setPosition(ls[0].position()); fn.setColor(hou.Color((0.3, 0.8, 0.5)))
+            new_terms.append(fn)
+        new_terms += singles
+        acc = A0
+        for ti, t in enumerate(new_terms):
+            nb = net.createNode('blend', 'FZ%02d_sum_%d' % (ci, ti))
+            for p in ('mode', 'alpha', 'signature', 'space', 'border', 'filter', 'scopergba', 'swap', 'uselength', 'clipbydata', 'crop'):
+                try: nb.parm(p).set(ch[0].parm(p).eval())
+                except Exception: pass
+            nb.setInput(0, acc); nb.setInput(1, t); nb.setPosition(final.position() + hou.Vector2(0, -1 - ti * 0.3))
+            acc = nb
+        acc.setUserData('replaces', final.name())
+        created[ci] = (final.name(), acc.name())
+    else:
+        new_final = next((n for n in net.children() if n.name().startswith('FZ%02d_sum_' % ci) and n.userData('replaces') == final.name()), None)
+        if new_final is None: continue
+        for o in list(final.outputs()):
+            for i2, x in enumerate(o.inputs()):
+                if x == final: o.setInput(i2, new_final)
+        removed = 0
+        for b in ch:
+            b.destroy(); removed += 1
+        for l in [l for ls in groups.values() for l in ls]:
+            l.destroy(); removed += 1
+        total_removed += removed
+result = {'dry': DRY, 'phase': PHASE, 'created': created, 'removed': total_removed, 'nodes_now': len(net.children())}

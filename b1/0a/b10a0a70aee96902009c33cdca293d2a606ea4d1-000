@@ -1,0 +1,30 @@
+{
+  "note": "1 October 2026 : variants of the lighting cycle. Each variant sets HDA parameters of /obj/CeramicGreen_Height (its name starts the folder render/ad_preview/light_<name>/). Run: python3 Scripts/LightCycle.py L002 first_tuning",
+  "frames": [
+    1,
+    61,
+    181,
+    301,
+    481,
+    521,
+    661
+  ],
+  "spp": 16,
+  "res": 1024,
+  "reference": "render/ad_preview/s003",
+  "variants": [
+    {
+      "name": "default",
+      "set": {
+        "light_rig": 1
+      }
+    },
+    {
+      "name": "glossier",
+      "set": {
+        "light_rig": 1,
+        "studio_gloss": 0.2
+      }
+    }
+  ]
+}

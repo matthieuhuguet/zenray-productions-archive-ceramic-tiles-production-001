@@ -1,0 +1,29 @@
+# 1 October 2026 : post-render checks of the Unreal frames (audit /think-of-everything of 1 October 2026): (1) rotation direction of the turning spheres of shot 5 (pattern rotation between frames 481 and 520, Unreal against Houdini), (2) roll direction of shot 4 (horizontal motion of the pattern on the green sphere during its hold),
+# (3) median luminance of the Unreal frame against the Houdini studio frame (7 frames), (4) hue of the green sphere, (5) the sharp cuts of shot 5 and the camera cuts between shots, (6) frame sizes. Usage: python3 Scripts/CheckUeFrames.py. FR : controles apres rendu des images Unreal.
+import numpy as np, os
+from PIL import Image, ImageFilter
+P = '/Users/zenray/Create/Build/Productions/ZenRayHoudini/CeramicTiles/'; U = P + 'render/final_ue/ad_%04d.png'; H = P + 'render/ad_preview/s003/ad_%04d.png'
+def lin(a): a = a / 255.0; return np.where(a <= 0.04045, a / 12.92, ((a + 0.055) / 1.055) ** 2.4)
+def gray(path, size=512): return lin(np.asarray(Image.open(path).convert('RGB').resize((size, size), Image.BOX), dtype=np.float32)).mean(axis=2)
+def edges(path, size=384, angle=0.0):
+    im = Image.open(path).convert('L').resize((size, size), Image.LANCZOS).filter(ImageFilter.GaussianBlur(1.2))
+    if angle: im = im.rotate(angle, resample=Image.BICUBIC)
+    a = np.asarray(im, dtype=np.float32) / 255; gx = np.abs(np.diff(a, axis=1))[:-1, :]; gy = np.abs(np.diff(a, axis=0))[:, :-1]; e = np.sqrt(gx ** 2 + gy ** 2)
+    h = e.shape[0]; yy, xx = np.mgrid[0:h, 0:h]; return e * (((yy - h / 2) ** 2 + (xx - h / 2) ** 2) < (0.34 * h) ** 2)
+def corr(a, b): a = a - a.mean(); b = b - b.mean(); return float((a * b).sum() / np.sqrt((a * a).sum() * (b * b).sum() + 1e-12))
+def rot_between(p0, p1):
+    e0 = edges(p0); best = max(((corr(e0, edges(p1, angle=a)), a) for a in np.arange(-100, 100.1, 1.0)), key=lambda x: x[0]); return best[1], best[0]
+print('1. rotation of the turning spheres (shot 5, frames 481 -> 520, expected magnitude 78 degrees): Houdini %.0f (corr %.2f) | Unreal %.0f (corr %.2f)' % (*rot_between(H % 481, H % 520), *rot_between(U % 481, U % 520)))
+def shift_x(p0, p1):
+    a, b = gray(p0, 256), gray(p1, 256); a = a - a.mean(); b = b - b.mean(); f = np.fft.ifft2(np.fft.fft2(a) * np.conj(np.fft.fft2(b))).real; y, x = np.unravel_index(np.argmax(f), f.shape); x = x - 256 if x > 128 else x; y = y - 256 if y > 128 else y; return x, y
+print('2. roll of the green sphere (shot 4 hold, frames 361 -> 373), horizontal shift of the pattern in px at 256 (positive = towards +X, expected for a roll towards the slide direction): Unreal', shift_x(U % 373, U % 361))
+print('3. median luminance, Unreal against the Houdini studio frame (render/ad_preview/light_L006_default):')
+for f in (1, 61, 181, 301, 481, 521, 661):
+    h = P + 'render/ad_preview/light_L006_default/ad_%04d.png' % f; u = gray(U % f); hh = gray(h)
+    print('   frame %3d  Unreal %.4f  Houdini %.4f  %+.2f stops' % (f, np.median(u), np.median(hh), np.log2(np.median(u) / np.median(hh))))
+x = lin(np.asarray(Image.open(U % 481).convert('RGB').resize((256, 256), Image.BOX), dtype=np.float32)); yy, xx = np.mgrid[0:256, 0:256]; m = ((yy - 128) ** 2 + (xx - 128) ** 2) < (0.3 * 256) ** 2; v = x[m].mean(axis=0)
+hx = lin(np.asarray(Image.open(P + 'render/ad_preview/hou4096maps/ad_0481.png').convert('RGB').resize((256, 256), Image.BOX), dtype=np.float32)); w = hx[m].mean(axis=0)
+print('4. hue of the green sphere (frame 481): R/G Unreal %.3f Houdini %.3f | B/G Unreal %.3f Houdini %.3f' % (v[0] / v[1], w[0] / w[1], v[2] / v[1], w[2] / w[1]))
+def d(f1, f2): a, b = gray(U % f1, 128), gray(U % f2, 128); return float(np.sqrt(((a - b) ** 2).mean()) / a.mean())
+print('5. cuts: jump between consecutive frames (relative RMS) at the shot 5 cuts 520->521 %.3f, 560->561 %.3f (sharp cuts, large), and inside the hold 500->501 %.3f, 540->541 %.3f (small); camera cuts 120->121 %.3f, 240->241 %.3f, 360->361 %.3f, 480->481 %.3f, 600->601 %.3f' % (d(520, 521), d(560, 561), d(500, 501), d(540, 541), d(120, 121), d(240, 241), d(360, 361), d(480, 481), d(600, 601)))
+sz = [Image.open(U % f).size for f in (1, 360, 720)]; print('6. sizes', sz)

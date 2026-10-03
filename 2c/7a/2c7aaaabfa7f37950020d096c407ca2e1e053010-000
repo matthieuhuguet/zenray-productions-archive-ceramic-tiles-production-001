@@ -1,0 +1,30 @@
+{
+"export": [],
+"set": {
+"dish_depth": 0.5,
+"reflection_gain": 1.0,
+"key_exposure": 4.7,
+"spec_exposure": -0.8,
+"glaze_tint": 0.41,
+"dome_exposure": -6.0,
+"fill_exposure": -4.5,
+"movement_amount": 2.0,
+"cloud_gain": 1.5,
+"mottle_gain": 1.0,
+"wall_height": 1.0,
+"relief_depth": 0.05,
+"line_width": 0.35,
+"fringe_gain": 0.0,
+"U1_normal__from_detailed_height/scale": 0.11
+},
+"stage_set": {},
+"frame": "render/frames/_colour_x.png",
+"spp": 32,
+"res": 1024,
+"patch": [
+"Scripts/PatchRidgeOn.py",
+"Scripts/PatchRidgeRound.py",
+"Scripts/PatchBandMatch.py",
+"Scripts/PatchMaterialSwitch.py"
+]
+}

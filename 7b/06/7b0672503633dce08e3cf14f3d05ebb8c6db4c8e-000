@@ -1,0 +1,27 @@
+# 1 October 2026 : one calibration step for the golden band. Compares the band interior (|signed distance| <= 3.4 px, from ref-maps/layout_signed_distance_probe.png) of a frame with 01a on an 8 x 8 grid, smooths the ratio (normalised
+# gaussian convolution, sigma 1 cell) and MULTIPLIES it into ref-maps/band_match.json['cell'] (cumulative, like colour_calib.json). Usage: CalibrateBand.py <frame.png> [--dry]
+# FR : une etape d'etalonnage de la bande doree par cellules 8 x 8, cumulative.
+import sys, json, numpy as np
+from PIL import Image
+from scipy import ndimage as ndi
+B = '/Users/zenray/Create/Build/Productions/ZenRayHoudini/CeramicTiles/'
+R = 2048
+P = np.asarray(Image.open(B + 'ref-maps/layout_signed_distance_probe.png').convert('RGB').resize((R, R), Image.NEAREST), float) / 255
+ad = np.abs((P[..., 0] - 0.5) * 80)
+ref = np.asarray(Image.open(B + '01a-julien-delannoy-10-left.png').convert('RGB').resize((R, R), Image.LANCZOS), float) / 255
+me = np.asarray(Image.open(B + sys.argv[1]).convert('RGB').resize((R, R), Image.LANCZOS), float) / 255
+L = lambda x: (x * [0.2126, 0.7152, 0.0722]).sum(-1)
+g = 8; cs = R // g; inter = ad <= 3.4
+num = np.zeros((g, g)); den = np.zeros((g, g)); w = np.zeros((g, g))
+for i in range(g):
+    for j in range(g):
+        sl = (slice(i * cs, (i + 1) * cs), slice(j * cs, (j + 1) * cs)); m = inter[sl]; w[i, j] = m.sum()
+        if m.sum() > 150: num[i, j] = L(ref[sl][m]).mean(); den[i, j] = L(me[sl][m]).mean()
+ok = (w > 150).astype(float)
+ratio = np.clip(ndi.gaussian_filter(num * ok, 1.0) / np.maximum(ndi.gaussian_filter(den * ok, 1.0), 1e-3), 0.6, 1.7)
+D = json.load(open(B + 'ref-maps/band_match.json'))
+old = np.array(D.get('cell', np.ones((g, g))))
+new = np.clip(old * ratio, 0.4, 3.0)
+print('ratio min/max', ratio.min().round(3), ratio.max().round(3), ' mean abs log', np.abs(np.log(ratio)).mean().round(4))
+if '--dry' not in sys.argv:
+    D['cell'] = new.tolist(); json.dump(D, open(B + 'ref-maps/band_match.json', 'w')); print('cell table updated')

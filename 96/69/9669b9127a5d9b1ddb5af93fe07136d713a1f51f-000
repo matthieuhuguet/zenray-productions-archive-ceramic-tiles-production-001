@@ -1,0 +1,29 @@
+# 1 October 2026 : storyboard of the commercial, SQUARE since storyboard v2 (final video 1:1, 4096 px). One row per shot, 5 key frames per shot (the times are SHOTS[k]['keys'] of AdShots.py), with the shot name, the camera move, the lens and the colour set.
+# Usage: AssembleStoryboard.py <version, e.g. S002> <frames folder> <output summary words>. Writes storyboard/S<NNN>_<date>_<words>.png. Matthieu (1 October 2026): "un storyboard avec les keyframes importantes" is enough to validate. FR : storyboard carre, 5 images cles par plan.
+import sys, os
+from PIL import Image, ImageDraw, ImageFont
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import AdShots as A
+B = '/Users/zenray/Create/Build/Productions/ZenRayHoudini/CeramicTiles/'
+ver = sys.argv[1] if len(sys.argv) > 1 else 'S005'; D = (sys.argv[2] if len(sys.argv) > 2 else B + 'render/final_ue/'); words = sys.argv[3] if len(sys.argv) > 3 else 'edit_25s_5_shots'
+INFO = {0: ('SHOT 1  TRIPTYCH', 'green | multicolour | teal', 'Perfectly vertical (top down) slide over the three planes side by side, 35 mm. A plane is exactly on the axis during each hold, the camera glides to the next one in between. The pattern is the same, only the colour changes.'),
+        1: ('SHOT 2  RISE', 'multicolour (palette of 01b)', 'Crane up from an oblique view to straight overhead on the multicolour plane, 28 mm, slight turn.'),
+        2: ('SHOT 3  ORBIT', 'teal (colour of 02a)', 'Orbit of 62 degrees around the teal plane, 60 mm. S001 to S003 (Karma): f/2.8 with a pulled focus. S004 (Unreal): no depth of field, the cinematic DOF crashes the editor on this Mac (BUG-21).'),
+        3: ('SHOT 4  SPHERES, ROLL', 'green | multicolour | teal', 'The same vertical slide over three cube spheres (one colour each) that roll about the horizontal axis while the camera glides.'),
+        4: ('SHOT 5  SPHERES, CUT', 'green | multicolour | teal', 'NOT a travelling: a hard cut (one frame, no transition) from sphere to sphere at 1.67 s and 3.33 s, while the three identical spheres keep turning like a record. Each cut is shown by its last frame before and first frame after: the pattern keeps turning, only the colour changes.'),
+        5: ('SHOT 6  SPHERE TRIO', 'multicolour (top) | green | teal', 'Three spheres of the same size, one colour each, all rotating at the same time by a quaternion slerp (different axes, same timing), slow push in from straight above, 35 mm.')}
+CELL, GAP, HEAD, FOOT = 384, 8, 50, 18
+try: font = ImageFont.truetype('/System/Library/Fonts/Helvetica.ttc', 17); small = ImageFont.truetype('/System/Library/Fonts/Helvetica.ttc', 13)
+except Exception: font = small = None
+# 1 October 2026 (25 s edit): one row per shot OF THE FILM, in the order of AdShots.EDIT_ORDER, with its film time and its source frames; the shot left out of the edit is named in the title strip. FR : une ligne par plan du film, dans l'ordre du montage.
+NE = len(A.EDIT_ORDER); LEFT_OUT = [A.SHOTS[k]['name'] + ' (pool frames %d to %d, %d to %d s of the 30 s order)' % (1 + A.SHOT_FRAMES * k, A.SHOT_FRAMES * (k + 1), 5 * k, 5 * k + 5) for k in range(A.NSHOTS) if k not in A.EDIT_ORDER]
+W = Image.new('RGB', (5 * CELL + 6 * GAP, NE * (CELL + HEAD + FOOT) + GAP + 34), (18, 18, 18)); dr = ImageDraw.Draw(W)
+dr.text((GAP + 4, 8), 'FILM %d s = %d shots x 5 s, %d frames, 24 fps   |   order: %s   |   left out: %s' % (A.EDIT_FRAMES // A.FPS, NE, A.EDIT_FRAMES, ' > '.join(A.SHOTS[k]['name'] for k in A.EDIT_ORDER), '; '.join(LEFT_OUT) or 'none'), fill=(255, 210, 120), font=font)
+for e, k in enumerate(A.EDIT_ORDER):
+    f0 = 1 + A.SHOT_FRAMES * k; fs = [f0 + round(t * (A.SHOT_FRAMES - 1)) for t in A.SHOTS[k]['keys']]; y = GAP + 34 + e * (CELL + HEAD + FOOT)
+    dr.text((GAP + 4, y + 2), 'FILM %d to %d s   |   %s   |   colour: %s   |   pool frames %d to %d' % (5 * e, 5 * e + 5, INFO[k][0], INFO[k][1], f0, f0 + 119), fill=(240, 240, 240), font=font)
+    dr.text((GAP + 4, y + 25), INFO[k][2], fill=(170, 170, 170), font=small)
+    for i, f in enumerate(fs):
+        im = Image.open(D + 'ad_%04d.png' % f).convert('RGB').resize((CELL, CELL), Image.LANCZOS); x = GAP + i * (CELL + GAP)
+        W.paste(im, (x, y + HEAD)); dr.text((x + 4, y + HEAD + CELL + 2), 'pool %d   film t = %.2f s' % (f, 5 * e + (f - f0) / 24), fill=(200, 200, 200), font=small)
+out = B + 'storyboard/%s_2026-10-01_%s.png' % (ver, words); W.save(out); print(out, W.size)

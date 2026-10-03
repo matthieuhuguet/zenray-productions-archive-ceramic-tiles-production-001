@@ -1,0 +1,37 @@
+# 1 October 2026 : one calibration step of the colour sets. Reads the still render/frames/_colourset_<name>.png (1024 x 1024, plane seen from above), measures the median GLAZE colour (the clay band, the joints, the highlights are excluded; the layout distance
+# comes from ref-maps/layout_signed_distance_probe.png) per tile for the multicolour set (4 x 4) or over the whole picture for the teal set, compares with the targets of ref-maps/colour_variants.json and multiplies the gains by lin(target) / lin(measured),
+# like ref-maps/colour_calib.json does for the green. Usage: CalibrateVariants.py multi|teal [--dry]. FR : une etape d'etalonnage des variantes de couleur, cumulative.
+import sys, json, numpy as np
+from PIL import Image
+B = '/Users/zenray/Create/Build/Productions/ZenRayHoudini/CeramicTiles/'
+which = sys.argv[1]; R = 1024
+lin = lambda x: np.where(x <= 0.04045, x / 12.92, ((x + 0.055) / 1.055) ** 2.4)
+D = json.load(open(B + 'ref-maps/colour_variants.json'))
+import os
+if os.path.getmtime(B + f'render/frames/_colourset_{which}.png') < os.path.getmtime(B + 'ref-maps/colour_variants.json'): raise SystemExit('STALE: the still is older than the gains file; render it again before calibrating (a calibration step applied twice to the same picture over-corrects)')
+fr = np.asarray(Image.open(B + f'render/frames/_colourset_{which}.png').convert('RGB').resize((R, R), Image.LANCZOS), float) / 255
+P = np.asarray(Image.open(B + 'ref-maps/layout_signed_distance_probe.png').convert('RGB').resize((R, R), Image.NEAREST), float) / 255
+ad = np.abs((P[..., 0] - 0.5) * 80) * (1920 / R) ** -1 * 1.0      # pixels of the 1920 map, converted below to R pixels
+L = lambda x: (x * [0.2126, 0.7152, 0.0722]).sum(-1)
+mx, mn = fr.max(-1), fr.min(-1); sat = (mx - mn) / (mx + 1e-6)
+hi = (L(fr) > 0.55) | ((L(fr) > 0.38) & (sat < 0.10)); tan = (fr[..., 0] > 1.12 * fr[..., 1]) & (fr[..., 0] > 1.25 * fr[..., 2]) & (L(fr) > 0.08)
+mask = (ad > 12 * R / 1920) & ~hi & ~tan
+mask = mask & (ad > 12 * R / 1920)
+ts = R // 4
+if which == 'multi':
+    tgt = np.array(D['tiles_target_srgb']).reshape(4, 4, 3); g = np.array(D['multi']).reshape(4, 4, 3); err = []
+    for r in range(4):
+        for c in range(4):
+            sl = (slice(r * ts + 14, (r + 1) * ts - 14), slice(c * ts + 14, (c + 1) * ts - 14)); m = mask[sl]
+            if m.sum() < 400: continue
+            meas = np.median(fr[sl][m], 0)
+            ratio = np.clip(lin(tgt[r, c]) / np.maximum(lin(meas), 1e-4), 0.4, 2.5)
+            err.append(np.abs(np.log(ratio)).mean()); g[r, c] = g[r, c] * ratio
+    print('mean |log ratio| per channel over the 16 tiles', round(float(np.mean(err)), 4))
+    if '--dry' not in sys.argv: D['multi'] = g.reshape(16, 3).tolist(); D['history'].append({'set': 'multi', 'err': float(np.mean(err))})
+else:
+    tgt = np.array(D['teal_target_srgb']); meas = np.median(fr[mask], 0)
+    ratio = np.clip(lin(tgt) / np.maximum(lin(meas), 1e-4), 0.4, 2.5)
+    print('teal measured', meas.round(3), 'target', tgt.round(3), 'ratio', ratio.round(3))
+    if '--dry' not in sys.argv: D['teal'] = (np.array(D['teal']) * ratio).tolist(); D['history'].append({'set': 'teal', 'err': float(np.abs(np.log(ratio)).mean())})
+if '--dry' not in sys.argv: json.dump(D, open(B + 'ref-maps/colour_variants.json', 'w'), indent=1); print('gains updated')

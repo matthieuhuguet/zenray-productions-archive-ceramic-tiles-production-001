@@ -1,0 +1,23 @@
+# 1 October 2026 : runs INSIDE Houdini. Exports the basecolor map of each colour set to render/CeramicGreen_V6_basecolor.png (green, the default file), render/CeramicGreen_V6_basecolor_multi.png and render/CeramicGreen_V6_basecolor_teal.png, and (EXPORT_ALL = True) the other five maps
+# of each set to render/variants/<set>_<map>.png so that the identity of the pattern can be proved. colour_set is locked during the export and its expression restored afterwards. FR : export des trois cartes de couleur.
+import hou, os, time
+net = hou.node('/obj/CeramicGreen_Height')
+R = '/Users/zenray/Create/Build/Productions/ZenRayHoudini/CeramicTiles/render/'
+os.makedirs(R + 'variants', exist_ok=True)
+SETS = [(0, '_green'), (1, '_multi'), (2, '_teal')]; NAMES = {0: 'green', 1: 'multi', 2: 'teal'}      # 1 October 2026 : the explicit green file is written too; the default CeramicGreen_V6_basecolor.png is rewritten with the green at the end
+p = net.parm('colour_set'); expr = p.expression() if p.keyframes() else None
+ALL = bool(globals().get('EXPORT_ALL', False)); res = {}
+for cs, suffix in SETS:
+    p.deleteAllKeyframes(); p.set(cs)
+    ex = net.node('U4_export__basecolor_v6'); ex.parm('copoutput').set(R + 'CeramicGreen_V6_basecolor%s.png' % suffix)
+    t = time.time(); ex.parm('execute').pressButton(); res['basecolor_' + NAMES[cs]] = round(time.time() - t, 1)
+    if ex.errors(): res['ERROR_' + NAMES[cs]] = list(ex.errors())[:1]
+    if ALL:
+        for m in ('height', 'normal', 'roughness', 'reflect', 'ao'):
+            e = net.node(f'U4_export__{m}_v6'); orig = e.parm('copoutput').eval(); e.parm('copoutput').set(R + f'variants/{NAMES[cs]}_{m}.png'); e.parm('execute').pressButton(); e.parm('copoutput').set(orig)
+import shutil; shutil.copy(R + 'CeramicGreen_V6_basecolor_green.png', R + 'CeramicGreen_V6_basecolor.png')
+ex.parm('copoutput').set(R + 'CeramicGreen_V6_basecolor.png')
+p.deleteAllKeyframes()
+if expr: p.setExpression(expr, hou.exprLanguage.Hscript)
+else: p.set(0)
+result = res

@@ -1,0 +1,14 @@
+# 1 October 2026 : headless oracle. Loads a BACKUP hip (the 1226 node graph), bypasses the ridge nodes (V058 look), exports the six maps to render/scratch/orig_<map>.png in a fresh cold cook (no parameter jitter).
+import hou, sys, time
+B = '/Users/zenray/Create/Build/Productions/ZenRayHoudini/CeramicTiles/'
+hou.hipFile.load(sys.argv[1] if len(sys.argv) > 1 else B + 'backups/2026-10-01_before_prune/CeramicGreen_Height_V5_1226nodes.hiplc', suppress_save_prompt=True, ignore_load_warnings=True)
+PREFIX = sys.argv[2] if len(sys.argv) > 2 else 'orig'
+net = hou.node('/obj/CeramicGreen_Height')
+for n in ('N9_normal__ridge_bevel_on_both_edges', 'ZK_rough__terracotta_roughness_mask_on_band_and_joints', 'RK_reflect__terracotta_coat_weight_on_band_and_joints', 'ZL_albedo__contact_shadow_beside_the_ridge'):
+    x = net.node(n)
+    if x: x.bypass(True)
+t0 = time.time()
+for s in ('height', 'normal', 'basecolor', 'roughness', 'reflect', 'ao'):
+    ex = net.node(f'U4_export__{s}_v6'); ex.parm('copoutput').set(B + f'render/scratch/{PREFIX}_{s}.png'); ex.parm('execute').pressButton()
+    print(s, 'errors', list(ex.errors())[:1], flush=True)
+print('nodes', len(net.children()), 'total s', round(time.time() - t0, 1))

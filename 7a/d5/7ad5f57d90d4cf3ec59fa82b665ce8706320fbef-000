@@ -1,0 +1,16 @@
+# 2 October 2026 : read-only inspection of the COP graph of the saved hip (node types, master interface, node types available for the variant switch). Usage: hython Scripts/InspectGraph.py [hip]. FR : lecture seule du graph.
+import hou, sys, collections
+P = '/Users/zenray/Create/Build/Productions/ZenRayHoudini/CeramicTiles/'
+hou.hipFile.load(sys.argv[1] if len(sys.argv) > 1 else P + 'hip/CeramicGreen_Height_V5.hiplc', suppress_save_prompt=True, ignore_load_warnings=True)
+m = hou.node('/obj/CeramicGreen_Height'); print('master', m.path(), m.type().name(), m.type().category().name(), 'children', len(m.children()))
+c = collections.Counter(n.type().name() for n in m.children()); print(dict(c))
+print('master parm templates:')
+for t in m.parmTemplateGroup().entries():
+    if t.type() == hou.parmTemplateType.Folder: print(' FOLDER', t.label(), [p.name() for p in t.parmTemplates()])
+cats = hou.copNodeTypeCategory(); names = sorted(cats.nodeTypes().keys())
+print('cop types matching switch/mux/select/merge/blend/composite:', [n for n in names if any(k in n for k in ('switch','select','mux','merge','composite','mix'))])
+print('total cop node types', len(names))
+print('sample wrangle parms:', [p.name() for p in m.node('B1_layout__signed_distance_to_the_A_and_B_circles').parms()][:25])
+w = m.node('B1_layout__signed_distance_to_the_A_and_B_circles'); print('B1 snippet:'); print(w.parm('snippet').eval()[:1500]) if w.parm('snippet') else print(' no snippet parm')
+print('inputs of FINAL_1..6:'); [print(' ', n.name(), '<-', [i.name() for i in n.inputs()]) for n in m.children() if n.name().startswith('FINAL_')]
+res = [n for n in m.children() if n.isDisplayFlagSet() or n.isRenderFlagSet()]; print('display/render flagged', [n.name() for n in res])

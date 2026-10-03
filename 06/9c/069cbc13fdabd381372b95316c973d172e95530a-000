@@ -1,0 +1,23 @@
+# 2 October 2026 : geometry score of a variant: the thin tan line mask of the reference against the same mask of the variant base colour map (both at 1024), as precision / recall / F within a pixel tolerance. A comparison of LINE POSITIONS, independent of colours and lighting.
+# Usage: python3 Scripts/GeomScore.py <maps dir> <reference png> [tol px = 5] [hue lo,hi] [sat min] [val min]. Prints the score and writes <maps dir>/geom_overlay.png (reference lines in red, variant lines in green, both in yellow). FR : score de geometrie des lignes.
+import sys, numpy as np
+from PIL import Image
+from scipy import ndimage as ndi
+def thin_tan(path, size, hue=(18, 48), smin=0.30, vmin=0.30, open_r=3):
+    im = Image.open(path).convert('RGB').resize((size, size), Image.LANCZOS); hsv = np.asarray(im.convert('HSV'), np.float32) / 255.0
+    h = hsv[..., 0] * 360.0; s = hsv[..., 1]; v = hsv[..., 2]; m = (h >= hue[0]) & (h <= hue[1]) & (s >= smin) & (v >= vmin)
+    r = open_r; yy, xx = np.mgrid[-r:r + 1, -r:r + 1]; disk = (xx * xx + yy * yy) <= r * r
+    wide = ndi.binary_opening(m, structure=disk); thin = m & ~ndi.binary_dilation(wide, structure=disk)
+    return ndi.binary_opening(thin, structure=np.ones((2, 2)))
+if __name__ == '__main__':
+    d, ref = sys.argv[1], sys.argv[2]; tol = float(sys.argv[3]) if len(sys.argv) > 3 else 5.0
+    hue = tuple(float(x) for x in sys.argv[4].split(',')) if len(sys.argv) > 4 else (18, 48); smin = float(sys.argv[5]) if len(sys.argv) > 5 else 0.30; vmin = float(sys.argv[6]) if len(sys.argv) > 6 else 0.30
+    S = 1024; a = thin_tan(ref, S, hue, smin, vmin)
+    # variant side: the pixels whose colour is the band / flank colour of the variant (the variant paints them on purpose), passed with --band r,g,b (sRGB 0..1); default measured tan x 1.15
+    bc = np.array([float(x) for x in (sys.argv[sys.argv.index('--band') + 1] if '--band' in sys.argv else '0.537,0.41,0.307').split(',')], np.float32)
+    cmap = np.asarray(Image.open(d + '/basecolor.png').convert('RGB').resize((S, S), Image.LANCZOS), np.float32) / 255.0
+    b = np.linalg.norm(cmap - bc, axis=2) < float(sys.argv[sys.argv.index("--ctol") + 1]) if "--ctol" in sys.argv else 0.045
+    da = ndi.distance_transform_edt(~a); db = ndi.distance_transform_edt(~b)
+    prec = float((da[b] <= tol).mean()) if b.any() else 0.0; rec = float((db[a] <= tol).mean()) if a.any() else 0.0; f = 2 * prec * rec / max(prec + rec, 1e-9)
+    print('geometry: reference line px %d, variant line px %d | precision %.3f recall %.3f F %.3f (tol %g px at %d)' % (a.sum(), b.sum(), prec, rec, f, tol, S))
+    ov = np.zeros((S, S, 3), np.uint8); ov[..., 0] = a * 255; ov[..., 1] = b * 255; Image.fromarray(ov).save(d + '/geom_overlay.png')

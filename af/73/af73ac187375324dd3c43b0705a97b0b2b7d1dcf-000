@@ -1,0 +1,37 @@
+# 2 October 2026 : measure reference 02b (6 x 6 rounded dish tiles): per tile steep side (darkest border sector), steepness, mean colour, bowl rim extents. Output ref-maps/v02b.json. FR : mesures de la référence 02b.
+import numpy as np, json
+from PIL import Image
+from scipy import ndimage as ndi
+B = '/Users/zenray/Create/Build/Productions/ZenRayHoudini/CeramicTiles/'
+im = Image.open(B + '02b-julien-delannoy-11-right.png').convert('RGB'); a = np.asarray(im, np.float32) / 255.0
+lum = a @ np.array([0.2126, 0.7152, 0.0722], np.float32)
+N = 6; P = a.shape[0] / N
+# find joint lines by column / row darkness profile
+cols = lum.mean(0); rows = lum.mean(1)
+def joints(p):
+    g = ndi.uniform_filter1d(p, 5); idx = [int(round(P * k)) for k in range(1, N)]
+    out = []
+    for i in idx:
+        w = g[i - 12:i + 13]; out.append(i - 12 + int(np.argmin(w)))
+    return out
+jx = joints(cols); jy = joints(rows); print('joint x', jx, 'joint y', jy)
+ex = [0] + jx + [a.shape[1]]; ey = [0] + jy + [a.shape[0]]
+res = []
+for r in range(N):
+    row = []
+    for c in range(N):
+        t = a[ey[r] + 6:ey[r + 1] - 6, ex[c] + 6:ex[c + 1] - 6]; l = lum[ey[r] + 6:ey[r + 1] - 6, ex[c] + 6:ex[c + 1] - 6]
+        h, w = l.shape; yy, xx = np.mgrid[0:h, 0:w]; u = (xx + .5) / w - .5; v = (yy + .5) / h - .5
+        edge = np.maximum(abs(u), abs(v)) > 0.30
+        sec = {'top': (v < 0) & (abs(v) >= abs(u)), 'right': (u > 0) & (abs(u) > abs(v)), 'bottom': (v > 0) & (abs(v) >= abs(u)), 'left': (u < 0) & (abs(u) > abs(v))}
+        m = {k: float(l[s & edge].mean()) for k, s in sec.items()}
+        centre = float(l[np.maximum(abs(u), abs(v)) < 0.2].mean())
+        side = min(m, key=m.get); order = ['top', 'right', 'bottom', 'left']
+        strength = float(np.clip((centre - m[side]) / max(centre, 1e-3), 0, 1))
+        mid = t[(np.maximum(abs(u), abs(v)) < 0.30)]
+        col = mid.mean(0)
+        row.append(dict(side=order.index(side), strength=round(strength, 3), colour=[round(float(x), 4) for x in col], centre=round(centre, 3), sectors={k: round(v, 3) for k, v in m.items()}))
+    res.append(row)
+for r in range(N): print(r, [(x['side'], x['strength']) for x in res[r]])
+gm = np.mean([x['colour'] for row in res for x in row], 0); print('global mean colour', gm)
+json.dump(dict(tiles=N, joints_x=jx, joints_y=jy, tile=res, mean_colour=[float(x) for x in gm]), open(B + 'ref-maps/v02b.json', 'w'), indent=1)

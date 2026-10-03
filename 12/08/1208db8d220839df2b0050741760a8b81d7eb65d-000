@@ -1,0 +1,43 @@
+# 1 October 2026 : applies ONE colour grade to the frames of the commercial, with the numpy port of the photo shader of the skill zenray-html-photoshop-pdf-hda-socialmedia-shorts-reel (templates/hda-heavy/photo-apply.py, parity with the WebGL preview measured at 0/255), so that the film is graded exactly like the 3 frames Matthieu tuned in the atelier.
+# Input: the block "Copier params" of the atelier (text with a JSON object inside) saved in a file; the grade is the "photo" object of the image given by --from (default 01). Frames: the POOL of the Unreal render, render/final_ue/ad_<pool>.png -> render/final_ue_graded/ad_<pool>.png (the originals are never touched).
+# Since the remount 2 (1 October 2026) the grade is stored BY POOL NUMBER, not by film number: the grade of a frame does not depend on the order of the edit, so changing AdShots.EDIT_ORDER only needs EditAd.py (links) and AssembleAdVideo.py, never a new grade. By default only the pool frames used by the current edit are graded (AdShots.edit_to_source for film frames 1..EDIT_FRAMES); frames already graded are skipped unless --force.
+# Usage: python3 Scripts/GradeFrames.py <block.txt> [--from 01] [--only 490,121,300 (POOL numbers)] [--force] [--workers 8] | --identity (proves that an empty grade changes nothing). FR : applique le grade valide a toutes les images du montage, rangees par numero du reservoir, sans toucher aux originaux.
+import sys, os, json, glob, argparse, importlib.util
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import AdShots as A
+from concurrent.futures import ProcessPoolExecutor
+import numpy as np
+from PIL import Image
+P = '/Users/zenray/Create/Build/Productions/ZenRayHoudini/CeramicTiles/'
+SRC, DST = P + 'render/final_ue/', P + 'render/final_ue_graded/'
+SHADER = '/Users/zenray/.claude/skills/zenray-html-photoshop-pdf-hda-socialmedia-shorts-reel/templates/hda-heavy/photo-apply.py'
+def load_shader():
+    spec = importlib.util.spec_from_file_location('photo_apply', SHADER); m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m); return m
+def read_grade(path, image_id):
+    t = open(path).read(); data = json.loads(t[t.index('{'):t.rindex('}') + 1])
+    imgs = data['images']; photos = {k: v.get('photo') for k, v in imgs.items()}
+    if image_id not in photos: raise SystemExit('image %s not in the block (have %s)' % (image_id, sorted(photos)))
+    same = all(json.dumps(p, sort_keys=True) == json.dumps(photos[image_id], sort_keys=True) for p in photos.values())
+    return photos[image_id], same, sorted(photos)
+def grade_one(args):
+    n, photo = args; m = load_shader()
+    a = np.asarray(Image.open(SRC + 'ad_%04d.png' % n).convert('RGB'), dtype=np.float32) / 255.0
+    out = (m.apply_photo(a, photo) * 255.0 + 0.5).astype(np.uint8)
+    Image.fromarray(out).save(DST + 'ad_%04d.png' % n, compress_level=1); return n
+if __name__ == '__main__':
+    ap = argparse.ArgumentParser(); ap.add_argument('block', nargs='?'); ap.add_argument('--from', dest='src_id', default='01'); ap.add_argument('--only'); ap.add_argument('--force', action='store_true'); ap.add_argument('--workers', type=int, default=8); ap.add_argument('--identity', action='store_true')
+    a = ap.parse_args(); os.makedirs(DST, exist_ok=True)
+    if a.identity:
+        m = load_shader(); x = np.asarray(Image.open(SRC + 'ad_0250.png').convert('RGB').resize((1024, 1024)), dtype=np.float32) / 255.0
+        y = m.apply_photo(x, {}); d = float(np.abs(x - y).max() * 255); print('identity: max difference %.3f / 255' % d); sys.exit(0 if d < 0.5 else 1)
+    photo, same, ids = read_grade(a.block, a.src_id)
+    print('grade from image %s; the %d images of the block %s the same grade' % (a.src_id, len(ids), 'carry' if same else 'carry DIFFERENT grades (only %s is used)' % a.src_id))
+    frames = [int(x) for x in a.only.split(',')] if a.only else sorted(set(A.edit_to_source(n) for n in range(1, A.EDIT_FRAMES + 1)))      # POOL numbers
+    todo = [n for n in frames if a.force or not os.path.isfile(DST + 'ad_%04d.png' % n)]
+    print('%d pool frames wanted, %d to grade, %d already graded (skipped%s)' % (len(frames), len(todo), len(frames) - len(todo), '' if not a.force else '; --force: none skipped'))
+    done = 0
+    with ProcessPoolExecutor(a.workers) as ex:
+        for n in ex.map(grade_one, [(n, photo) for n in todo]):
+            done += 1
+            if done % 60 == 0 or done == len(todo): print('graded %d / %d' % (done, len(todo)), flush=True)
+    print('PASS' if all(os.path.isfile(DST + 'ad_%04d.png' % n) for n in frames) else 'FAIL')

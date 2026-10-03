@@ -1,0 +1,41 @@
+# 1 October 2026 : prepares the SHORT and the THUMBNAIL of the Ceramic Tiles commercial from the 25 s EDIT of the Unreal frames (render/final_edit/ad_0001..0600.png = links to render/final_ue, 4096 x 4096, 24 fps) with the V4 pipeline of the zenray-houdini skill (short-editor-v4 + ZenRayShards/Scripts/ComposeShortV4.py).
+# Layout (4:5, 3072 x 3840, the default of the skill since 15 September 2026): the square film (the 25 s edit of EditAd.py) reduced to 3072 x 3072 and centred on a V4 black background, title in the top band (GT Sectra Bold, caps, white, black shadow), subtitles in the bottom band (Archive Garamond Bold Italic) read from the post table.
+# Steps: `base` builds the background + film as a 24 fps H.264 base video; `silent` makes a silent master audio of the length of the edit (25 s) (the music is chosen by Matthieu: rule "masters silencieux"); `compose` runs ComposeShortV4.py on 04-edit/short1.json; `thumb` writes the single thumbnail JPEG (4K 4:5) from a trio frame.
+# Nothing is published. Usage: ~/.venvs/shorts/bin/python Scripts/MakeAdShort.py base|silent|preview|compose|thumb [FILM frame for thumb = 460, the pool frame 700]. FR : prepare le short et la miniature de la pub (V4, 4:5 4K), rien n'est publie.
+import sys, os, subprocess, json
+from pathlib import Path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import AdShots as A
+W, H, FILM, FPS = 3072, 3840, 3072, 24
+P = Path('/Users/zenray/Create/Build/Productions/ZenRayHoudini/CeramicTiles/'); S = Path('/Users/zenray/.claude/tmp/tmp-short-ceramic-tiles-ad/')
+ZRS = '/Users/zenray/Create/Build/Productions/ZenRayShards/Scripts/'; PY = '/Users/zenray/.venvs/shorts/bin/python'
+# the film is the EDIT of 25 s (Scripts/EditAd.py), not the 720-frame pool
+FRAMES = P / (A.EDIT_FRAMES_DIR + '/ad_%04d.png'); SEC = A.EDIT_FRAMES // FPS; BG = S / '03-stills/bg_black_4x5.png'
+cfg = {'name': 'short1', 'width': W, 'height': H, 'fps': FPS, 'post': '/Users/zenray/.claude/Memory1/Posts/2026-10-01-ceramic-tiles-houdini-unreal/post-ceramic-tiles-v3.md', 'cue_heading': '## Short 1',
+       'base': str(S / '06-render/base/short1_base.mp4'), 'audio': str(S / ('05-audio/silent_%ds.m4a' % SEC)), 'out': str(S / '06-render/short-ceramic-tiles-houdini-unreal'), 'preview_dir': str(S / '06-render/previews'),
+       'title': {'lines': ['Ceramic Tiles', 'Houdini Copernicus x Unreal Lumen'], 'size1': 190, 'size2': 84, 'y': [70, 255], 'tracking_em': 0.06, 'safe_width': 0.9, 'fade_in': 0.5, 'shadow': {'color': [0, 0, 0, 230], 'offset': 12, 'blur': 9}},
+       'subtitles': {'size': 104, 'min_size': 72, 'max_width': 0.9, 'word_space': 26, 'y': [3490, 3640], 'shadow': {'color': [0, 0, 0, 255], 'offset': 10, 'blur': 14}}}
+PREVIEW = '2.5,7.5,12.5,17.5,21.5,24.25'      # the middle of each cue of the post table (1 October 2026, 25 s edit)
+def run(a, **k): return subprocess.run(a, check=True, **k)
+cmd = sys.argv[1] if len(sys.argv) > 1 else 'base'
+os.makedirs(S / '04-edit', exist_ok=True); json.dump(cfg, open(S / '04-edit/short1.json', 'w'), indent=1)
+if cmd == 'base':
+    if not BG.exists(): run([PY, ZRS + 'ShortV4Background.py', 'black_layer_04', str(W), str(H), str(BG)])
+    y = (H - FILM) // 2
+    run(['ffmpeg', '-v', 'error', '-y', '-loop', '1', '-framerate', str(FPS), '-i', str(BG), '-framerate', str(FPS), '-start_number', '1', '-i', str(FRAMES), '-filter_complex',
+         f'[1:v]scale={FILM}:{FILM}:flags=lanczos,format=rgb24[v];[0:v][v]overlay=0:{y}:shortest=1,format=yuv420p[o]', '-map', '[o]', '-frames:v', str(A.EDIT_FRAMES), '-c:v', 'libx264', '-crf', '12', '-preset', 'slow', '-r', str(FPS), str(S / '06-render/base/short1_base.mp4')])
+    print('base video', S / '06-render/base/short1_base.mp4')
+elif cmd == 'silent':
+    run(['ffmpeg', '-v', 'error', '-y', '-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=stereo', '-t', str(SEC), '-c:a', 'aac', '-b:a', '320k', str(S / ('05-audio/silent_%ds.m4a' % SEC))]); print('silent master', S / ('05-audio/silent_%ds.m4a' % SEC))
+elif cmd in ('preview', 'compose'):
+    a = [PY, ZRS + 'ComposeShortV4.py', str(S / '04-edit/short1.json')] + (['--preview', PREVIEW] if cmd == 'preview' else [])
+    run(a)
+elif cmd == 'thumb':
+    sys.path.insert(0, ZRS); import ComposeShortV4 as C
+    from PIL import Image
+    n = int(sys.argv[2]) if len(sys.argv) > 2 else A.source_to_edit(700)      # film frame of the pool frame 700 (trio of the three colours)
+    if not BG.exists(): run([PY, ZRS + 'ShortV4Background.py', 'black_layer_04', str(W), str(H), str(BG)])
+    canvas = Image.open(BG).convert('RGBA'); film = Image.open(str(FRAMES) % n).convert('RGBA').resize((FILM, FILM), Image.LANCZOS); canvas.alpha_composite(film, (0, (H - FILM) // 2))
+    t = dict(cfg['title']); t['size1'] = 215; t['size2'] = 96; t['y'] = [55, 250]; c2 = dict(cfg); c2['title'] = t
+    title = C.build_title(c2, {}); C.compose(c2, 5.0, canvas, title, [])
+    out = S / '06-render/thumbnail-ceramic-tiles-4x5-4k.jpg'; canvas.convert('RGB').save(out, quality=94, optimize=True); print(out, os.path.getsize(out) // 1024, 'KB')

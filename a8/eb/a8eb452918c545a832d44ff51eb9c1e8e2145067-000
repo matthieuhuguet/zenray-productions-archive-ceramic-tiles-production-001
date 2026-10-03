@@ -1,0 +1,20 @@
+# 1 October 2026 : cuts the music of the commercial from a downloaded track (yt-dlp WAV): START seconds, DURATION seconds, loudness normalisation by the EBU R128 two pass method (ffmpeg loudnorm, linear, target LUFS and true peak below), then a fade in and a fade out of FADE seconds. Matthieu (1 October 2026): "ytb dlp 4:36 + 25 secondes cut avec 1 sec transition fade in et out normalisation, Bloodflow, Grandbrothers, 5:58".
+# Usage: python3 Scripts/MakeMusicCut.py <source.wav> <out basename> [--start 276] [--dur 25] [--fade 1] [--lufs -14] [--tp -1]. Writes <out>.wav (48 kHz 24 bit) and <out>.m4a (AAC 320 kbit/s) and prints the loudness of the result. FR : coupe, normalise et fond la musique de la pub.
+import sys, json, subprocess, argparse, re, os
+ap = argparse.ArgumentParser(); ap.add_argument('src'); ap.add_argument('out'); ap.add_argument('--start', type=float, default=276.0); ap.add_argument('--dur', type=float, default=25.0)
+ap.add_argument('--fade', type=float, default=1.0); ap.add_argument('--lufs', type=float, default=-14.0); ap.add_argument('--tp', type=float, default=-1.0); a = ap.parse_args()
+def run(args): return subprocess.run(args, capture_output=True, text=True)
+cut = ['-ss', str(a.start), '-t', str(a.dur), '-i', a.src]
+# pass 1 : measure the excerpt itself (the normalisation is computed on the 25 s that are used, not on the whole track)
+r = run(['ffmpeg', '-hide_banner', '-nostats'] + cut + ['-af', 'loudnorm=I=%g:TP=%g:LRA=11:print_format=json' % (a.lufs, a.tp), '-f', 'null', '-'])
+m = json.loads(re.search(r'\{[^{}]*"input_i"[^{}]*\}', r.stderr, re.S).group(0)); print('measured excerpt: I %s LUFS, TP %s dBTP, LRA %s' % (m['input_i'], m['input_tp'], m['input_lra']))
+# pass 2 : linear gain from the measurement, then the fades (after the gain, so the fades are exact)
+af = ('loudnorm=I=%g:TP=%g:LRA=11:measured_I=%s:measured_TP=%s:measured_LRA=%s:measured_thresh=%s:offset=%s:linear=true,aresample=48000,afade=t=in:st=0:d=%g,afade=t=out:st=%g:d=%g'
+      % (a.lufs, a.tp, m['input_i'], m['input_tp'], m['input_lra'], m['input_thresh'], m['target_offset'], a.fade, a.dur - a.fade, a.fade))
+wav, m4a = a.out + '.wav', a.out + '.m4a'
+assert run(['ffmpeg', '-y', '-v', 'error'] + cut + ['-af', af, '-ar', '48000', '-c:a', 'pcm_s24le', wav]).returncode == 0, 'wav failed'
+assert run(['ffmpeg', '-y', '-v', 'error', '-i', wav, '-c:a', 'aac', '-b:a', '320k', m4a]).returncode == 0, 'm4a failed'
+r = run(['ffmpeg', '-hide_banner', '-nostats', '-i', wav, '-af', 'ebur128=peak=true', '-f', 'null', '-']); tail = r.stderr[r.stderr.rindex('Summary'):]
+I = re.search(r'I:\s+(-?[\d.]+) LUFS', tail).group(1); LRA = re.search(r'LRA:\s+(-?[\d.]+) LU', tail).group(1); TPK = re.search(r'Peak:\s+(-?[\d.]+) dBFS', tail).group(1)
+dur = float(json.loads(run(['ffprobe', '-v', 'error', '-show_entries', 'format=duration', '-of', 'json', wav]).stdout)['format']['duration'])
+print('result: %.3f s, integrated %s LUFS (target %g), loudness range %s LU, true peak %s dBTP (limit %g)' % (dur, I, a.lufs, LRA, TPK, a.tp)); print(wav, os.path.getsize(wav) // 1024, 'KB;', m4a, os.path.getsize(m4a) // 1024, 'KB')

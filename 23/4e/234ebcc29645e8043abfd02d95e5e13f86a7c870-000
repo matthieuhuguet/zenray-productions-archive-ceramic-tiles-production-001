@@ -1,0 +1,16 @@
+# 2 October 2026 : builds one variant into a hip. Usage: hython Scripts/BuildVariant.py <hip in> <hip out> <01b|02a|02b> <layered|fused>. FR : construit une variante.
+import hou, sys
+B = '/Users/zenray/Create/Build/Productions/ZenRayHoudini/CeramicTiles/'
+sys.path.insert(0, B + 'Scripts')
+hou.hipFile.load(sys.argv[1], suppress_save_prompt=True, ignore_load_warnings=True)
+mod = {'01b': 'Variant01b', '02a': 'Variant02a', '02b': 'Variant02b'}[sys.argv[3]]
+M = __import__(mod); out = M.build(sys.argv[4] == 'fused')
+if '--reset-params' in sys.argv:
+    import VariantLib as L; L.set_defaults(M.SPECS); print('parameters reset to the defaults of', mod)
+bad = []
+for k, nd in out.items():
+    for a in [nd] + list(nd.inputAncestors()):
+        if a.errors(): bad.append((a.name(), list(a.errors())[:1]))
+print('built', sys.argv[3], sys.argv[4], 'nodes of the variant:', len([c for c in hou.node('/obj/CeramicGreen_Height').children() if c.name().startswith(M.VARIANT['prefix'])]))
+print('errors:', bad[:6])
+hou.hipFile.save(sys.argv[2])

@@ -1,0 +1,75 @@
+# 2 October 2026 : adds a ROW of three planes, one per new pattern (01b, 02a, 02b), BELOW the existing row of three planes of the scene (z = +4.2 in Houdini, the bottom of a top view; the old row is at z = 0), each with its own material read from maps/<variant>/ (the 2048 maps exported by ExportVariantMaps.sh),
+# its own top camera, wired into the same merge, material library and assign of /stage, lit by the same studio rig (the cyclorama of the first set is 44 m wide, 16 m deep in front, so it carries the new row). Idempotent: every node it makes is rebuilt. Usage: hython Scripts/AddVariantPlanes.py <hip in> <hip out>. FR : ajoute une rangee de trois plans pour les trois nouveaux motifs.
+import hou, sys, os
+B = '/Users/zenray/Create/Build/Productions/ZenRayHoudini/CeramicTiles/'
+# ---- every value of the row in ONE place (HDA rule)
+P = dict(
+    row_z=4.2, xs=(-4.2, 0.0, 4.2), plane_size=4.0, plane_div=5, cam_height=5.8333333, focal=35.0, aperture=24.0,
+    # key, folder of the maps, displacement scale (m per unit of height), height level that stays at y = 0, normal flip (the variant normal maps are DirectX, Houdini reads OpenGL),
+    # tint = scalar multiplier of the base colour: the studio rig is bright (key 10.5 stops), so the render mean in linear light was 2.5 to 5 times the reference mean; the scalar is the ratio of the luminances (1024 px XPU render, 2 October 2026), the hue stays the one of the map
+    variants=[('01b', '01b_pillow_tiles', 0.05, 0.12, 1, 0.35), ('02a', '02a_serpentine_arcs', 0.14, 0.60, 1, 0.20), ('02b', '02b_terracotta_bowls', 0.14, 0.60, 1, 0.27)],
+    normal_scale=4.0,
+)
+hou.hipFile.load(os.path.abspath(sys.argv[1]), suppress_save_prompt=True, ignore_load_warnings=True)
+obj, mat, st = hou.node('/obj'), hou.node('/mat'), hou.node('/stage')
+src = mat.node('CeramicGreen_Material')
+MAPS = dict(basecolor_texture='basecolor', rough_texture='roughness', occlusion_texture='ao', baseNormal_texture='normal', dispTex_texture='height', reflect_texture='reflect', coat_texture='reflect', coatrough_texture='roughness')
+for key, folder, dscale, dlevel, flip, tint in P['variants']:
+    # ---- 1. material: a copy of the proven 01a shader (same coat, same maps wiring), textures swapped, HDA expressions of 01a removed
+    name = 'CeramicTiles_' + key
+    if mat.node(name): mat.node(name).destroy()
+    m = hou.copyNodesTo([src], mat)[0]; m.setName(name, True)
+    for pn, stem in MAPS.items():
+        m.parm(pn).deleteAllKeyframes(); m.parm(pn).set(B + 'maps/%s/%s.png' % (folder, stem))
+    for pn in ('basecolorr', 'basecolorg', 'basecolorb'): m.parm(pn).deleteAllKeyframes(); m.parm(pn).set(tint)
+    m.parm('dispTex_scale').deleteAllKeyframes(); m.parm('dispTex_scale').set(dscale)
+    m.parm('dispTex_offset').deleteAllKeyframes(); m.parm('dispTex_offset').set(dlevel)
+    m.parm('baseNormal_flipY').set(flip); m.parm('baseNormal_scale').set(P['normal_scale'])
+    m.moveToGoodPosition()
+    # ---- 2. geometry: a 4 m plane, UV 0 to 1 with the same V flip as the first plane, the material assigned in the SOPs
+    gname = 'CeramicTiles_%s_Plane' % key
+    if obj.node(gname): obj.node(gname).destroy()
+    geo = obj.createNode('geo', gname)
+    grid = geo.createNode('grid', 'plane'); grid.parm('sizex').set(P['plane_size']); grid.parm('sizey').set(P['plane_size']); grid.parm('rows').set(P['plane_div']); grid.parm('cols').set(P['plane_div'])
+    uv = geo.createNode('texture', 'uv_0_to_1'); uv.setInput(0, grid); uv.parm('sv').set(-1.0); uv.parm('offsetv').set(1.0)
+    ma = geo.createNode('material', 'assign_' + key); ma.setInput(0, uv); ma.parm('shop_materialpath1').set(m.path()); ma.setDisplayFlag(True); ma.setRenderFlag(True)
+    geo.layoutChildren(); geo.moveToGoodPosition()
+# ---- 3. LOPs
+def fresh(t, nm):
+    if st.node(nm): st.node(nm).destroy()
+    return st.createNode(t, nm)
+merge = st.node('cg_merge'); lib = st.node('cg_materials'); asg = st.node('cg_assign')
+objs = []
+for (key, folder, dscale, dlevel, flip, tint), x in zip(P['variants'], P['xs']):
+    imp = fresh('sopimport', 'cg_plane_' + key); imp.parm('soppath').set('/obj/CeramicTiles_%s_Plane/assign_%s' % (key, key)); imp.parm('pathprefix').set('/cg_plane_' + key)
+    xf = fresh('xform', 'cg_xf_plane_' + key); xf.setInput(0, imp); xf.parm('primpattern').set('/cg_plane_' + key); xf.parm('tx').set(x); xf.parm('tz').set(P['row_z'])
+    objs.append(xf)
+# merge: keep the existing inputs, add ours at the end (rebuilt on a second run)
+cur = [i for i in merge.inputs()]; keep = [i for i in cur if i is not None and not i.name().startswith('cg_xf_plane_0')]
+for i in range(len(cur) + 3): 
+    try: merge.setInput(i, None)
+    except Exception: pass
+for i, n in enumerate(keep + objs): merge.setInput(i, n)
+# material library entries and assignments
+for key, *_ in P['variants']:
+    nm = 'CeramicTiles_' + key; n = lib.parm('materials').eval()
+    idx = next((i for i in range(1, n + 1) if lib.parm('matpath%d' % i).eval() == nm), None)
+    if idx is None:
+        lib.parm('materials').set(n + 1); idx = n + 1
+    lib.parm('matflag%d' % idx).set(0); lib.parm('matnode%d' % idx).set('../../mat/' + nm); lib.parm('matpath%d' % idx).set(nm)
+    n_a = asg.parm('nummaterials').eval()
+    ia = next((i for i in range(1, n_a + 1) if asg.parm('matspecpath%d' % i).eval() == '/materials/' + nm), None)
+    if ia is None:
+        asg.parm('nummaterials').set(n_a + 1); ia = n_a + 1
+    asg.parm('primpattern%d' % ia).set('/cg_plane_%s/*' % key); asg.parm('matspecmethod%d' % ia).set(0); asg.parm('matspecpath%d' % ia).set('/materials/' + nm)
+# cameras: three top cameras chained after cg_ad_shot5, in front of the cyclorama merge
+head = st.node('cg_ad_shot5'); prev = head
+for (key, *_), x in zip(P['variants'], P['xs']):
+    cam = fresh('camera', 'cg_cam_' + key); cam.setInput(0, prev); prev = cam
+    cam.parm('primpath').set('/cameras/cg_cam_' + key)
+    for k, v in dict(tx=x, ty=P['cam_height'], tz=P['row_z'], rx=-90.0).items(): cam.parm(k).set(v)
+    cam.parm('focalLength').set(P['focal']); cam.parm('horizontalAperture').set(P['aperture'])
+st.node('ad_cyc_merge').setInput(0, prev)
+for n in objs + [st.node('cg_cam_' + k) for k, *_ in P['variants']]: n.moveToGoodPosition()
+print('merge inputs', len(merge.inputs()), 'lib', lib.parm('materials').eval(), 'assign', asg.parm('nummaterials').eval())
+hou.hipFile.save(os.path.abspath(sys.argv[2]))

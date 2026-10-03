@@ -1,0 +1,84 @@
+# 30 September 2026 : V9 = V8 + 64 REFLECTION layers that act on the textures (Matthieu: "baisser les reflets jusqu'a ce que l'image soit parfaite via les modifications de la texture"). The glints of 01a are many small,
+# dim, greenish patches (5700 blobs of 7 px, p99 luminance 0.62, whiteness 0.77); mine were few, big and pure white (2925 blobs of 13 px, p99 = 1.0, whiteness 0.91), measured by Scripts/MeasureHighlights.py.
+# Four families of 16 on the ROUGHNESS map (it now also drives the clear coat roughness, see BuildCeramicGreenPlane.py) and one micro NORMAL chain of 16 that breaks the glints up:
+#   H  16 broad haze patches     : roughness raised in soft patches, so whole glints dim and widen
+#   J  16 micro roughness grain  : fine roughness noise, so a glint becomes many small ones
+#   K  16 wall and rim layers    : rougher close to the arcs (01a has no glint on the walls), both sides
+#   L  16 dish floor layers      : roughness ramps across each dish with its depth, plus a dish / plateau offset
+#   N  16 micro normal layers    : fine bumps (orange peel of the glaze) that shatter the mirror into small glints
+# Every amplitude is multiplied by the HDA parameter reflection_blur. FR : V9 = V8 + 64 couches de reflets sur les textures (rugosite + micro normale).
+import hou, runpy, json
+B = '/Users/zenray/Create/Build/Productions/ZenRayHoudini/CeramicTiles/'
+G8 = runpy.run_path(B + 'Scripts/BuildCeramicGreenColourV8.py')
+net, G = G8['net'], G8['G']
+node, vex, UV = G['node'], G['vex'], G8['UV']
+CH = G['CH']
+P9 = {
+    'lift': 0.30,
+    'haze': {'freqs': [2.5, 4, 6.5, 10], 'amp': 0.10},
+    'grain': {'freqs': [120, 220, 380, 600], 'amp': 0.06},
+    'wall': {'bands': [(0, 3), (3, 8), (8, 16), (16, 30)], 'amp': 0.12},
+    'dish': {'depth_keys': [0.02, 0.06, 0.12, 0.25], 'amp': 0.08},
+    'micro_normal': {'freqs': [25, 50, 90, 160], 'amp': 0.010, 'scale': 0.004},
+}
+pos = net.node('E3_joints__distance_to_tile_edge'); sdn = net.node('Y0_arcs__signed_distance_to_the_nearest_arc_negative_inside')
+names = []
+def noise3(f, z): return 'noise(set(@P.x * %s, @P.y * %s, %f))' % (repr(float(f)), repr(float(f)), z)
+def L(name, src, code): n = vex(net, name, [src], UV + code); names.append(n.name()); return n
+def add(prev, name, lay): n = node(net, 'blend', name, [prev, lay], mode=3); names.append(n.name()); return n
+RB = net.node('RB_ROUGHNESS__v6_as_one_grey_channel'); r = RB.input(0)
+BL = CH('reflection_blur')
+kinds = ['a', 'b', 'c', 'd']
+# ---- H0 : the DC part of the softness: all the layers below have zero mean, so the softness parameter also lifts the roughness level itself (glints get wider and dimmer)
+lift = vex(net, 'H0_haze__roughness_level_lift_by_the_softness_parameter', pos, 'float k = %s * %f;\np@C = set(k, k, k, 0.0);\n' % (BL, P9['lift'])) if False else L('H0_haze__roughness_level_lift_by_the_softness_parameter', pos, 'float k = %s * %f;\np@C = set(k, k, k, 0.0);\n' % (BL, P9['lift']))
+r = add(r, 'H0b_haze__add_level_lift', lift)
+# ---- H : broad haze patches (4 frequencies x 4 kinds = 16 layers); zero mean by construction: sm() of a noise with mean 0.5 thresholds (0.45, 0.65) has mean 0.1666, subtracted
+for fi, f in enumerate(P9['haze']['freqs']):
+    for ki, kn in enumerate(kinds):
+        code = 'float n = sm(0.45, 0.65, %s) - 0.1666;\nfloat k = n * %f * %s;\np@C = set(k, k, k, 0.0);\n' % (noise3(f, 2000 + 11 * fi + 3 * ki), P9['haze']['amp'] * (1.0 - 0.15 * ki), BL)
+        r = add(r, f'H2_haze_{kn}_f{f}__add_haze', L(f'H1_haze_{kn}_f{f}__roughness_haze_patches', pos, code))
+# ---- J : micro roughness grain
+for fi, f in enumerate(P9['grain']['freqs']):
+    for ki, kn in enumerate(kinds):
+        code = 'float n = (%s - 0.5) / 0.103;\nfloat k = n * %f * %s;\np@C = set(k, k, k, 0.0);\n' % (noise3(f, 2100 + 11 * fi + 3 * ki), P9['grain']['amp'] / 4.0, BL)
+        r = add(r, f'J2_grain_{kn}_f{f}__add_grain', L(f'J1_grain_{kn}_f{f}__micro_roughness_grain', pos, code))
+# ---- K : rougher close to the walls (signed distance, tile units: one 1080 px = 1/270 tile)
+for side, sgn in (('dish', -1.0), ('high', 1.0)):
+    for bi, (lo, hi) in enumerate(P9['wall']['bands']):
+        for ki in range(2):
+            code = ('float sd = p@C.x;\nfloat ad = sd * %f;\nfloat env = sm(%f, %f, ad) * (1.0 - sm(%f, %f, ad));\nfloat n = 0.6 + 0.8 * noise(set(@P.x * %f, @P.y * %f, %f));\n'
+                    'float k = env * n * %f * %s;\np@C = set(k, k, k, 0.0);\n') % (sgn, (lo - 1.0) / 270.0, lo / 270.0 if lo > 0 else 0.0, hi / 270.0, (hi + 2.0) / 270.0, 40.0 + 60.0 * ki, 40.0 + 60.0 * ki, 2200 + 7 * bi + ki, P9['wall']['amp'] * (1.0 - 0.15 * bi), BL)
+            r = add(r, f'K2_wall_{side}_b{bi}_{ki}__add_wall_roughness', L(f'K1_wall_{side}_b{bi}_{ki}__rougher_near_the_walls', sdn, code))
+# ---- L : dish floor (inside the dish only: sd < 0), roughness ramps with depth, 4 depth bands x 2 noise kinds x 2 signs of the dish parity offset
+for di, dk in enumerate(P9['dish']['depth_keys']):
+    for ki in range(4):
+        sign = 1.0 if ki % 2 == 0 else -1.0
+        code = ('float sd = p@C.x;\nfloat depth = sd < 0.0 ? -sd : 0.0;\nfloat env = sm(%f, %f, depth) * (1.0 - sm(%f, %f, depth));\nfloat n = noise(set(@P.x * %f, @P.y * %f, %f)) - 0.5;\n'
+                'float k = env * (0.5 + n) * %f * %s;\np@C = set(k, k, k, 0.0);\n') % (dk * 0.3, dk, dk * 1.6, dk * 2.6 + 0.05, 8.0 + 14.0 * ki, 8.0 + 14.0 * ki, 2300 + 5 * di + ki, sign * P9['dish']['amp'] * (1.0 - 0.1 * di), BL)
+        r = add(r, f'L2_dish_d{di}_{ki}__add_dish_roughness', L(f'L1_dish_d{di}_{ki}__roughness_ramp_inside_the_dish', sdn, code))
+RB.setInput(0, r)
+# ---- N : micro normal chain (16 fine bump layers -> blur -> normal -> combine with the main normal)
+mh = None
+for fi, f in enumerate(P9['micro_normal']['freqs']):
+    for ki, kn in enumerate(kinds):
+        code = 'float n = (%s - 0.5) / 0.103;\nfloat k = n * %f;\np@C = set(k, k, k, 0.0);\n' % (noise3(f, 2400 + 11 * fi + 3 * ki), P9['micro_normal']['amp'] / 4.0)
+        lay = L(f'N1_bump_{kn}_f{f}__fine_bump_{kn}', pos, code)
+        mh = lay if mh is None else add(mh, f'N2_bump_{kn}_f{f}__add_bump', lay)
+mh_mono = node(net, 'channelextract', 'N3_bump__as_one_grey_channel', [mh], channel=0); names.append(mh_mono.name())
+mn = node(net, 'heighttonormal', 'N4_bump__normal_from_the_micro_height', [mh_mono], normaltype=1, scale=P9['micro_normal']['scale'] * 1.0); names.append(mn.name())
+mn.parm('scale').setExpression('ch("../micro_bump") * 1.0') if net.parm('micro_bump') else None
+mflip = vex(net, 'N5_bump__flip_green_for_directx', [mn], 'v@C = set(@C.x, 1.0 - @C.y, @C.z);\n'); names.append(mflip.name())
+n_out = net.node('U3_NORMAL__ceramic_green_v6'); main = n_out.input(0)
+comb2 = node(net, 'combinenormals', 'N6_normal__combine_with_the_micro_bumps', [main, mflip]); names.append(comb2.name())
+# 30 September 2026 : slope limiter. 13 percent of the pixels had a tilt above 0.9 (normals almost horizontal at the foot of the walls): Karma shades a normal that faces away from the camera black, which drew a hard black line beside every arc. The tilt is capped at SLOPE_LIMIT (sine of the angle) and z is rebuilt.
+# FR : limiteur de pente : les normales quasi horizontales au pied des murs sortaient noires (ligne noire le long des arcs) ; l'inclinaison est plafonnee.
+SLOPE_LIMIT = 0.88
+lim = vex(net, 'N7_normal__slope_limiter', [comb2], 'vector4 c = p@C;\nvector2 t = set(c.x - 0.5, c.y - 0.5) * 2.0;\nfloat l = length(t);\nfloat lim = %f;\nif (l > lim) t *= lim / l;\nfloat z = sqrt(max(1.0 - dot(t, t), 0.0));\np@C = set(t.x * 0.5 + 0.5, t.y * 0.5 + 0.5, z * 0.5 + 0.5, c.w);\n' % SLOPE_LIMIT); names.append(lim.name())
+n_out.setInput(0, lim)
+# ---- layout: its own box
+x0 = max(n.position().x() for n in net.children() if n.name() not in names) + 6
+box = net.createNetworkBox(); box.setComment('AB  REFLECTIONS 64 layers: haze 16, micro grain 16, walls 16, dish floor 16 (+ micro normal 16)'); box.setColor(hou.Color((0.40, 0.65, 0.85)))
+for i, nm in enumerate(names):
+    n = net.node(nm); n.setPosition(hou.Vector2(x0 + (i // 16) * 3.2, -(i % 16) * 1.1)); n.setColor(hou.Color((0.40, 0.65, 0.85))); box.addItem(n)
+box.fitAroundContents()
+result = (len(net.children()), len(names))

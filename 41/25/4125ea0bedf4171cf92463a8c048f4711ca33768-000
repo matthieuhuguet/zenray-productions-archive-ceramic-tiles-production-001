@@ -1,0 +1,32 @@
+# 30 September 2026 : V10 = V9 + the REFLECTION MAP: a 6th map (render/CeramicGreen_V6_reflect.png) that drives the clear coat weight, built from 64 cell layers (one per cell of an 8 x 8 grid, bilinear tent weights)
+# whose gains come from ref-maps/reflect_calib.json, itself calibrated step by step against the glint density of the final render 01a (Scripts/MeasureHighlights.py + CalibrateReflectMap.py). In 01a the glints sit in a
+# diagonal band from the upper left to the centre and almost vanish on the right and at the bottom; a distant light makes them uniform, so the map places them. FR : V10 = V9 + carte de reflets (poids du vernis) en 64 couches.
+import hou, runpy, json, numpy as np
+B = '/Users/zenray/Create/Build/Productions/ZenRayHoudini/CeramicTiles/'
+G9 = runpy.run_path(B + 'Scripts/BuildCeramicGreenReflectV9.py')
+net, G = G9['net'], G9['G']
+node, vex, UV = G['node'], G['vex'], G9['UV']
+pos = net.node('E3_joints__distance_to_tile_edge')
+CAL = json.load(open(B + 'ref-maps/reflect_calib.json')); g = np.array(CAL['g'])
+names = []
+acc = None
+for i in range(8):
+    for j in range(8):
+        code = ('float xn = @P.x * 0.5 + 0.5;\nfloat yn = 0.5 - @P.y * 0.5;\nfloat fx = clamp(xn * 8.0 - 0.5, 0.0, 7.0);\nfloat fy = clamp(yn * 8.0 - 0.5, 0.0, 7.0);\n'
+                'float w = max(0.0, 1.0 - abs(fx - %d.0)) * max(0.0, 1.0 - abs(fy - %d.0));\nfloat k = w * %.4f;\np@C = set(k, k, k, 1.0);   // cell row %d column %d of the reflection map\n') % (j, i, g[i, j], i, j)
+        lay = vex(net, f'R1_cell_r{i}c{j}__reflection_gain_of_the_cell', [pos], code); names.append(lay.name())
+        acc = lay if acc is None else node(net, 'blend', f'R2_cell_r{i}c{j}__add_cell', [acc, lay], mode=3)
+        if acc is not lay: names.append(acc.name())
+refl_mono = node(net, 'channelextract', 'R3_reflect__as_one_grey_channel', [acc], channel=0); names.append(refl_mono.name())
+# 30 September 2026 : the HDA parameter reflection_gain drove only the coat VALUE, which is ignored while the coat reads a texture (coat_useTexture = 1), so it never changed a render (frames 054 to 075 ignored it). It now scales the reflection MAP itself.
+# FR : reflection_gain pilotait la valeur du vernis, ignoree quand une texture est branchee : il multiplie maintenant la carte de reflets elle-meme.
+refl_gain = vex(net, 'R3b_reflect__times_the_reflection_gain', [refl_mono], 'float k = p@C.x * %s;\np@C = set(k, k, k, 1.0);\n' % G['CH']('reflection_gain')); names.append(refl_gain.name())
+refl_out = node(net, 'null', 'R4_REFLECT__ceramic_green_v10', [refl_gain]); names.append(refl_out.name())
+ex = node(net, 'rop_image', 'U4_export__reflect_v6', [refl_out]); ex.parm('copoutput').set(B + 'render/CeramicGreen_V6_reflect.png'); ex.parm('colorconversion').set('raw'); names.append(ex.name())
+fin = node(net, 'null', 'FINAL_6_REFLECT', [refl_out]); fin.setColor(hou.Color((0.95, 0.85, 0.25)))
+x0 = max(n.position().x() for n in net.children() if n.name() not in names) + 6
+box = net.createNetworkBox(); box.setComment('AC  REFLECTION MAP 64 cell layers: where the glints may appear (coat weight)'); box.setColor(hou.Color((0.55, 0.75, 0.95)))
+for i, nm in enumerate(names):
+    n = net.node(nm); n.setPosition(hou.Vector2(x0 + (i // 16) * 3.2, -(i % 16) * 1.1)); n.setColor(hou.Color((0.55, 0.75, 0.95))); box.addItem(n)
+box.fitAroundContents()
+result = (len(net.children()), len(names))

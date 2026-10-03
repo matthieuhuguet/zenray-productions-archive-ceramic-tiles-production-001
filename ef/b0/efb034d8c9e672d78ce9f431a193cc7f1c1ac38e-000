@@ -1,0 +1,44 @@
+# 1 October 2026 : builds the 1:1 4096 THUMBNAIL of the commercial from the reference 08-julien-delannoy-boule-maps.jpg (Matthieu, 1 October 2026): the five FINAL maps (normal, base colour, roughness, AO, height) side by side as the background, in front the green sphere rendered by Unreal on a transparent black background, with the colour grade of the film (saturation +15, contrast +5, Vivid Cool 80).
+# Analysis of the reference: its map block is a square of 5 columns of 1:5; each column is a vertical strip of 819 x 4096 pixels of the 4096 map (4 tile rows, a tile joint in the middle), so at 1:1 on a 4096 canvas the five strips (5 x 819.2 px) fill the whole picture at native scale. The sphere comes from unreal/ue_sphere_pass.py (beauty pass on black + white unlit matte pass, same camera and samples), its alpha is the matte normalised by the vignette plateau.
+# Usage: python3 Scripts/MakeThumbMaps.py [params.json]. All values live in Scripts/thumb_maps_params.json. FR : miniature 1:1, cinq maps en fond, sphere verte etalonnee au premier plan.
+import sys, os, json, importlib.util
+import numpy as np
+from PIL import Image, ImageFilter
+P = '/Users/zenray/Create/Build/Productions/ZenRayHoudini/CeramicTiles/'
+cfg = json.load(open(sys.argv[1] if len(sys.argv) > 1 else P + 'Scripts/thumb_maps_params.json'))
+X = lambda p: os.path.expanduser(p) if p.startswith('~') else (p if os.path.isabs(p) else P + p)
+N = cfg['canvas']
+def srgb_to_lin(v): return np.where(v <= 0.04045, v / 12.92, ((v + 0.055) / 1.055) ** 2.4)
+# 1. background: five strips of the final maps, native scale, edges at round(i * N / 5)
+bg = np.zeros((N, N, 3), np.float32); edges = [round(i * N / len(cfg['maps'])) for i in range(len(cfg['maps']) + 1)]
+for i, f in enumerate(cfg['maps']):
+    w = edges[i + 1] - edges[i]; im = Image.open(X(cfg['maps_dir']) + f).convert('RGB'); assert im.size == (N, N), (f, im.size)
+    bg[:, edges[i]:edges[i + 1]] = np.asarray(im.crop((cfg['crop_x0'], 0, cfg['crop_x0'] + w, N)), np.float32) / 255.0
+# 2. sphere: alpha = matte (linear coverage) / vignette plateau, colour = premultiplied beauty un-premultiplied then graded
+beauty = np.asarray(Image.open(X(cfg['sphere_beauty'])).convert('RGB'), np.float32) / 255.0
+m = np.asarray(Image.open(X(cfg['sphere_mask'])).convert('RGB'), np.float32).mean(axis=2) / 255.0
+yy, xx = np.mgrid[0:N, 0:N]; r = np.hypot(xx - N / 2.0 + 0.5, yy - N / 2.0 + 0.5).astype(np.float32)
+inside = m > 0.5; rmax = float(r[inside].max()); bins = np.arange(0, int(rmax) + 2, 8)
+plateau = np.array([np.median(m[(r >= b) & (r < b + 8) & inside]) if ((r >= b) & (r < b + 8) & inside).sum() > 50 else np.nan for b in bins])
+good = ~np.isnan(plateau); plateau = np.interp(bins, bins[good], plateau[good])
+pl = np.interp(r, bins + 4, plateau).astype(np.float32)
+alpha = np.clip(srgb_to_lin(m) / np.maximum(srgb_to_lin(pl), 1e-4), 0.0, 1.0)
+F = np.clip(beauty / np.maximum(alpha, 0.2)[..., None], 0.0, 1.0)
+spec = importlib.util.spec_from_file_location('photo_apply', '/Users/zenray/.claude/skills/zenray-html-photoshop-pdf-hda-socialmedia-shorts-reel/templates/hda-heavy/photo-apply.py'); sh = importlib.util.module_from_spec(spec); spec.loader.exec_module(sh)
+t = open(X(cfg['grade_block'])).read(); photo = json.loads(t[t.index('{'):t.rindex('}') + 1])['images']['01']['photo']
+Fg = sh.apply_photo(F, photo) * alpha[..., None]            # graded colour, premultiplied again
+# 3. place: crop to the sphere box, scale to the target diameter, paste at the centre
+ys, xs = np.where(alpha > 0.01); x0, x1, y0, y1 = xs.min(), xs.max() + 1, ys.min(), ys.max() + 1
+d0 = max(x1 - x0, y1 - y0); s = cfg['sphere_diameter_px'] / d0; cx, cy = cfg['sphere_center_px']
+def rescale(a2d, size): return np.asarray(Image.fromarray(a2d.astype(np.float32), mode='F').resize(size, Image.LANCZOS), np.float32)
+nw, nh = round((x1 - x0) * s), round((y1 - y0) * s)
+A = np.zeros((N, N), np.float32); C = np.zeros((N, N, 3), np.float32)
+px, py = int(round(cx - nw / 2.0)), int(round(cy - nh / 2.0))
+As = np.clip(rescale(alpha[y0:y1, x0:x1], (nw, nh)), 0, 1); A[py:py + nh, px:px + nw] = As
+for c in range(3): C[py:py + nh, px:px + nw, c] = np.clip(rescale(Fg[y0:y1, x0:x1, c], (nw, nh)), 0, 1)
+# 4. halo: a soft black aura behind the sphere (a dark glow like the reference), then the sphere over it (premultiplied composite)
+aura = np.asarray(Image.fromarray((A * 255).astype(np.uint8)).filter(ImageFilter.GaussianBlur(cfg['halo_sigma_px'])), np.float32) / 255.0
+bg2 = bg * (1.0 - cfg['halo_strength'] * np.clip(aura * 1.6, 0, 1))[..., None]
+out = np.clip(C + bg2 * (1.0 - A)[..., None], 0, 1)
+img = Image.fromarray((out * 255 + 0.5).astype(np.uint8)); img.save(X(cfg['out_png']), compress_level=3); img.save(X(cfg['out_jpg']), quality=cfg['jpg_quality'], optimize=True)
+print('sphere box %dx%d scaled x%.3f to %d px; plateau %.3f..%.3f; wrote' % (x1 - x0, y1 - y0, s, nw, plateau.max(), plateau.min()), X(cfg['out_png']), os.path.getsize(X(cfg['out_png'])) // 1048576, 'MB;', X(cfg['out_jpg']), os.path.getsize(X(cfg['out_jpg'])) // 1048576, 'MB')

@@ -1,0 +1,25 @@
+# 1 October 2026 : builds the HIP OF THE FINAL RENDER (hython, headless, the live session is never touched). The commercial is 4096 x 4096 and a close shot magnifies the 1920 px maps up to 9 times (measured on frame 301 of the orbit): the six maps are exported again at <resolution> from the SAME graph
+# (the graph is resolution independent: height, normal, roughness and reflect keep a correlation of 0.999 with the 1920 maps after a box downsample; only the grain and the speckles get finer, which is what a 4K frame wants), the three colour sets of the basecolor included,
+# into render/maps_<resolution>/, the three ad materials are pointed to them, and the hip is saved as render/_ad_final.hiplc. Usage: hython MakeFinalHip.py [resolution = 4096] [source hip]. FR : le hip du rendu final, cartes en haute resolution.
+import hou, os, sys, time, glob, shutil
+B = '/Users/zenray/Create/Build/Productions/ZenRayHoudini/CeramicTiles/'
+RES = int(sys.argv[1]) if len(sys.argv) > 1 else 4096; SRC = sys.argv[2] if len(sys.argv) > 2 else B + 'hip/CeramicGreen_Height_V5.hiplc'
+MAPS = B + 'render/maps_%d/' % RES; os.makedirs(MAPS, exist_ok=True)
+hou.hipFile.load(SRC, suppress_save_prompt=True, ignore_load_warnings=True)
+net = hou.node('/obj/CeramicGreen_Height'); net.parm('res1').set(RES); net.parm('res2').set(RES)
+t0 = time.time(); cs = net.parm('colour_set'); cs.deleteAllKeyframes()
+for i, name in enumerate(('green', 'multi', 'teal')):
+    cs.set(i); ex = net.node('U4_export__basecolor_v6'); ex.parm('copoutput').set(MAPS + 'CeramicGreen_V6_basecolor_%s.png' % name); ex.parm('execute').pressButton()
+    print('basecolor', name, 'errors', list(ex.errors())[:1], flush=True)
+cs.set(0)
+for m in ('height', 'normal', 'roughness', 'reflect', 'ao'):
+    ex = net.node('U4_export__%s_v6' % m); ex.parm('copoutput').set(MAPS + 'CeramicGreen_V6_%s.png' % m); ex.parm('execute').pressButton(); print(m, 'errors', list(ex.errors())[:1], flush=True)
+print('maps exported in %.0f s' % (time.time() - t0), flush=True)
+for f in glob.glob(MAPS + '*.rat'): os.remove(f)
+for nm in ('CeramicAd_green', 'CeramicAd_multi', 'CeramicAd_teal'):
+    m = hou.node('/mat/' + nm)
+    for p in m.parms():
+        v = p.eval() if p.parmTemplate().type() == hou.parmTemplateType.String else None
+        if isinstance(v, str) and 'render/CeramicGreen_V6_' in v and '/maps_' not in v: p.set(v.replace('render/CeramicGreen_V6_', 'render/maps_%d/CeramicGreen_V6_' % RES))
+net.parm('res1').set(1920); net.parm('res2').set(1920)
+hou.hipFile.save(B + 'render/_ad_final.hiplc'); print('saved render/_ad_final.hiplc with maps at', RES, flush=True)

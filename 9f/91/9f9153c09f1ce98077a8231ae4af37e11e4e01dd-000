@@ -1,0 +1,40 @@
+# 1 October 2026 : LIGHT BENCHMARK of the final render (Matthieu, 1 October 2026: "estime combien de temps ça va prendre via léger benchmark"). One representative frame per shot is rendered at two small resolutions (1024 and 2048) with the PRODUCTION settings (32 samples + OIDN, hip render/_ad_final.hiplc),
+# in ONE hython process per resolution (so the scene build is paid once and the frame times are warm); a line t = a + b * pixels is fitted per shot (a = fixed cost of a frame, b = cost per pixel) and extrapolated to 4096 x 4096. The prediction for shot 1 is compared with the real throughput of the running job, and that ratio scales the other shots.
+# While it measures, the running RenderFinal.py workers are PAUSED (SIGSTOP) and always resumed (SIGCONT) at the end, so that the times are not polluted by the other processes. Usage: python3 Scripts/BenchFinal.py [--no-pause] [--measured-seconds-per-frame 142]
+# FR : benchmark leger du rendu final, un plan a la fois, extrapole a 4096.
+import sys, os, re, subprocess, time, signal, json
+B = '/Users/zenray/Create/Build/Productions/ZenRayHoudini/CeramicTiles/'
+HYTHON = '/Users/zenray/Create/Build/Houdini22/Houdini22.0.368/Frameworks/Houdini.framework/Versions/Current/Resources/bin/hython'
+FRAMES = {0: 61, 1: 181, 2: 301, 3: 421, 4: 521, 5: 661}; RES = (1024, 2048); SPP = 32
+real = float(sys.argv[sys.argv.index('--measured-seconds-per-frame') + 1]) if '--measured-seconds-per-frame' in sys.argv else None
+pids = [int(x) for x in subprocess.run(['pgrep', '-f', 'RenderAdFrames.py'], capture_output=True, text=True).stdout.split() if int(x) != os.getpid()]
+pause = '--no-pause' not in sys.argv
+try:
+    if pause:
+        for p in pids: os.kill(p, signal.SIGSTOP)
+        print('paused', len(pids), 'workers', flush=True)
+    T = {}
+    for r in RES:
+        out = B + 'render/bench/r%d' % r; os.makedirs(out, exist_ok=True)
+        for f in os.listdir(out): os.remove(os.path.join(out, f))
+        args = [HYTHON, B + 'Scripts/RenderAdFrames.py', B + 'render/_ad_final.hiplc', out, str(r), str(r), str(SPP), ','.join(str(f) for f in FRAMES.values()), '--denoise', 'oidn', '--keep-rat']
+        res = subprocess.run(args, capture_output=True, text=True, cwd=B)
+        for m in re.finditer(r'frame (\d+) shot (\d) .*took ([\d.]+) s', res.stdout): T.setdefault(int(m.group(2)), {})[r] = float(m.group(3))
+        print('resolution', r, 'done', flush=True)
+finally:
+    if pause:
+        for p in pids:
+            try: os.kill(p, signal.SIGCONT)
+            except ProcessLookupError: pass
+        print('workers resumed', flush=True)
+pred = {}
+for k, d in T.items():
+    if len(d) == 2:
+        (r1, r2) = RES; b = (d[r2] - d[r1]) / (r2 ** 2 - r1 ** 2); a = d[r1] - b * r1 ** 2; pred[k] = a + b * 4096 ** 2
+        print('shot %d frame %d: %d px %.1f s, %d px %.1f s -> fixed %.1f s + %.2f s per Mpx -> 4096: %.0f s' % (k + 1, FRAMES[k], RES[0], d[RES[0]], RES[1], d[RES[1]], a, b * 1e6, pred[k]))
+scale = (real / pred[0]) if (real and 0 in pred) else 1.0
+tot = sum(120 * pred[k] * scale for k in pred)
+print('scale to the real throughput of the job (%s s per frame for shot 1): %.2f' % (real, scale))
+for k in sorted(pred): print('shot %d: %.0f s per frame, %.1f h for 120 frames' % (k + 1, pred[k] * scale, 120 * pred[k] * scale / 3600))
+print('TOTAL for 720 frames: %.1f h' % (tot / 3600))
+json.dump({'times': T, 'pred4096_single_proc_s': pred, 'scale': scale, 'total_hours': tot / 3600, 'date': time.strftime('%d %B %Y %H:%M')}, open(B + 'render/bench/bench_report.json', 'w'), indent=1)

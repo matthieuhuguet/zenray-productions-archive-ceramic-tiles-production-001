@@ -1,0 +1,33 @@
+# 1 October 2026 : builds the EDIT of the commercial without copying a pixel. Two folders of symbolic links, in the order of AdShots.EDIT_ORDER (now Spheres cut, Rise, Orbit, Sphere trio, Triptych = 25 s):
+#   render/final_edit/ad_0001..0600.png         -> render/final_ue/ad_<pool>.png           (the frames as rendered in Unreal)
+#   render/final_edit_graded/ad_0001..0600.png  -> render/final_ue_graded/ad_<pool>.png   (the same frames after the colour grade of GradeFrames.py, stored BY POOL NUMBER so that a new order never needs a new grade)
+# Writes render/final_edit/EDIT_MAP.json and checks both folders (600 links, no duplicate pool frame, pool frames 361 to 480 absent, every link points where the map says). Fails with the name of the file when a graded frame is missing (run GradeFrames.py).
+# Usage: python3 Scripts/EditAd.py   (idempotent: it only removes the LINKS of the two edit folders, never an image of render/final_ue or render/final_ue_graded).
+# Matthieu (1 October 2026): remove 15 to 20 s, start at 5 s, first shot to the end, output 25 s; then (remount 2): "la sequence 10 a 15 en fait ce doit etre le premier plan".
+# FR : le montage par liens symboliques (images brutes ET images etalonnees), rien n'est copie ni re-rendu ni re-etalonne ; changer l'ordre = EDIT_ORDER dans AdShots.py puis ce script puis AssembleAdVideo.py.
+import os, sys, json, glob
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import AdShots as A
+P = '/Users/zenray/Create/Build/Productions/ZenRayHoudini/CeramicTiles/'
+POOLS = (('raw', P + 'render/final_ue/', P + 'render/final_edit/'), ('graded', P + 'render/final_ue_graded/', P + 'render/final_edit_graded/'))
+PAT = 'ad_[0-9][0-9][0-9][0-9].png'
+m = {n: A.edit_to_source(n) for n in range(1, A.EDIT_FRAMES + 1)}
+for label, SRC, DST in POOLS:                       # check first: nothing is touched when a frame is missing
+    for n, s in m.items():
+        f = SRC + 'ad_%04d.png' % s
+        if not os.path.isfile(f): sys.exit('FAIL: missing %s frame %s (film frame %d)%s' % (label, f, n, '; run Scripts/GradeFrames.py --only %d' % s if label == 'graded' else ''))
+ok = True
+for label, SRC, DST in POOLS:
+    os.makedirs(DST, exist_ok=True)
+    for f in glob.glob(DST + PAT):
+        assert os.path.islink(f), 'not a link, refusing to delete: ' + f          # only links of this folder, never an image
+        os.remove(f)
+    for n, s in m.items(): os.symlink(SRC + 'ad_%04d.png' % s, DST + 'ad_%04d.png' % n)
+    ok &= len(glob.glob(DST + PAT)) == A.EDIT_FRAMES and all(os.path.samefile(DST + 'ad_%04d.png' % n, SRC + 'ad_%04d.png' % m[n]) for n in m)
+    print('%s: %d links in %s' % (label, len(glob.glob(DST + PAT)), DST))
+json.dump({'edit_order_shot_index': list(A.EDIT_ORDER), 'frames': A.EDIT_FRAMES, 'seconds': A.EDIT_FRAMES / A.FPS, 'film_to_pool': m}, open(P + 'render/final_edit/EDIT_MAP.json', 'w'))
+ok &= len(set(m.values())) == A.EDIT_FRAMES
+removed = [f for f in range(1, 721) if A.source_to_edit(f) is None]
+ok &= (removed == list(range(361, 481))) and A.edit_to_source(1) == m[1] and A.edit_to_source(A.EDIT_FRAMES) == m[A.EDIT_FRAMES]
+print('film %d frames, %.2f s; pool frames left out: %d to %d (%d frames); film frame 1 = pool %d, last = pool %d' % (A.EDIT_FRAMES, A.EDIT_FRAMES / A.FPS, removed[0], removed[-1], len(removed), m[1], m[A.EDIT_FRAMES]))
+print('PASS' if ok else 'FAIL'); sys.exit(0 if ok else 1)

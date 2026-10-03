@@ -1,0 +1,14 @@
+# 2 October 2026 : read only: parameters of the normal-from-height node, the flip-green wrangle, and the export format of the six maps. FR : lecture seule.
+import hou
+P = '/Users/zenray/Create/Build/Productions/ZenRayHoudini/CeramicTiles/'
+hou.hipFile.load(P + 'hip/CeramicGreen_Height_V5.hiplc', suppress_save_prompt=True, ignore_load_warnings=True)
+m = hou.node('/obj/CeramicGreen_Height')
+for name in ('U1_normal__from_detailed_height', 'W7_movement__normal_from_the_blurred_height'):
+    n = m.node(name); print('=====', name); print([(p.name(), p.eval()) for p in n.parms()])
+for name in ('U2_normal__flip_green_for_directx', 'R3b_reflect__times_the_reflection_gain', 'T9_AO__v6_as_one_grey_channel', 'RB_ROUGHNESS__v6_as_one_grey_channel', 'R3_reflect__as_one_grey_channel', 'N6_normal__combine_with_the_micro_bumps'):
+    n = m.node(name); print('=====', name, n.type().name(), [i.inputNode().name() if i.inputNode() else None for i in n.inputConnections()])
+    if n.parm('vexsnippet'): print(n.parm('vexsnippet').eval()[:700])
+    else: print([(p.name(), p.eval()) for p in n.parms() if p.eval() not in ('', 0, 0.0)][:10])
+for s in ('height', 'normal', 'basecolor', 'roughness', 'reflect', 'ao'):
+    r = m.node('U4_export__%s_v6' % s); print(s, [(p.name(), p.eval()) for p in r.parms() if p.name() in ('copoutput','bits','depth','format','colorspace','signature','mask','compress') or 'bit' in p.name() or 'depth' in p.name() or 'color' in p.name()])
+print('res', m.parm('res1').eval(), 'precision', m.parm('precision').eval(), 'border', m.parm('border').eval())
