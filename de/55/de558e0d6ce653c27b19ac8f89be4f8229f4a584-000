@@ -1,0 +1,31 @@
+# 2 October 2026 : numpy tools of the variant work (no Houdini): a quick RELIGHT of the six maps (to compare a variant with its reference without a Karma render), tile statistics and a side by side sheet.
+# relight(maps_dir, size): lambert + blinn from a key light and a soft fill, using the normal map (DirectX green), the base colour (sRGB), roughness and reflect masks and the AO. It is a COMPARISON tool, not the final look (the final look is the Karma / Unreal render). FR : reeclairage rapide des cartes.
+import numpy as np, os
+from PIL import Image
+def _load(d, name, size=None):
+    im = Image.open(os.path.join(d, name + '.png'))
+    if size and im.size != (size, size): im = im.resize((size, size), Image.LANCZOS)
+    return np.asarray(im, np.float32) / 255.0
+def srgb2lin(x): return np.where(x <= 0.04045, x / 12.92, ((x + 0.055) / 1.055) ** 2.4)
+def lin2srgb(x): x = np.clip(x, 0, 1); return np.where(x <= 0.0031308, x * 12.92, 1.055 * x ** (1 / 2.4) - 0.055)
+def relight(d, size=1024, light=(-0.55, 0.60, 0.58), flip_green=True, key=2.4, fill=0.35, spec_gain=1.0, exposure=1.0):
+    n = _load(d, 'normal', size); b = _load(d, 'basecolor', size)[..., :3]; ro = _load(d, 'roughness', size); ao = _load(d, 'ao', size); rf = _load(d, 'reflect', size)
+    if ro.ndim == 3: ro = ro[..., 0]
+    if ao.ndim == 3: ao = ao[..., 0]
+    if rf.ndim == 3: rf = rf[..., 0]
+    nx = n[..., 0] * 2 - 1; ny = (n[..., 1] * 2 - 1) * (-1 if flip_green else 1); nz = np.sqrt(np.clip(1 - nx * nx - ny * ny, 0, 1))
+    L = np.array(light, np.float32); L /= np.linalg.norm(L)
+    ndl = np.clip(nx * L[0] + ny * L[1] + nz * L[2], 0, 1)
+    V = np.array([0, 0, 1], np.float32); H = L + V; H /= np.linalg.norm(H); ndh = np.clip(nx * H[0] + ny * H[1] + nz * H[2], 0, 1)
+    shin = 30 + 900 * (1 - np.clip(ro * 3, 0, 1)) ** 2
+    spec = (ndh ** shin) * (0.04 + 0.96 * rf) * spec_gain * (1.2 + shin / 120)
+    alb = srgb2lin(b)
+    rgb = alb * (fill * ao[..., None] + key * ndl[..., None] * (0.35 + 0.65 * ao[..., None])) + spec[..., None] * 0.6
+    return Image.fromarray((lin2srgb(rgb * exposure) * 255 + 0.5).astype(np.uint8))
+def sheet(images, labels, out, cell=800):
+    n = len(images); W = Image.new('RGB', (cell * n, cell + 24), (20, 20, 20))
+    from PIL import ImageDraw
+    d = ImageDraw.Draw(W)
+    for i, (im, lb) in enumerate(zip(images, labels)):
+        W.paste(im.convert('RGB').resize((cell, cell), Image.LANCZOS), (i * cell, 24)); d.text((i * cell + 6, 6), lb, fill=(235, 235, 235))
+    W.save(out)

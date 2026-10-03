@@ -1,0 +1,23 @@
+# 2 October 2026 : non regression gate of variant 0 (01a). Cooks the six FINAL maps of the ORIGINAL hip (temporary ROPs on the FINAL nulls) and of the variant hip with variant = 0, then compares pixel by pixel. Usage: hython Scripts/NonRegression01a.py <variant hip> [res=1024]. Exit code 1 if any map differs. FR : garde-fou de non régression de la variante 0.
+import hou, sys, os, numpy as np
+from PIL import Image
+B = '/Users/zenray/Create/Build/Productions/ZenRayHoudini/CeramicTiles/'
+sys.path.insert(0, B + 'Scripts'); import VariantLib as L
+hip = os.path.abspath(sys.argv[1]); res = int(sys.argv[2]) if len(sys.argv) > 2 else 1024
+D = B + 'render/scratch_nonreg/'; os.makedirs(D, exist_ok=True)
+def cook(path, tag, tmp_rops):
+    hou.hipFile.load(path, suppress_save_prompt=True, ignore_load_warnings=True); n = L.net(); n.parm('res1').set(res); n.parm('res2').set(res)
+    if n.parm('variant'): n.parm('variant').set(0)
+    for m in L.MAPS:
+        ex = n.createNode('rop_image', 'tmp_rop_' + m) if tmp_rops else n.node('VX_export__' + m)
+        if tmp_rops: ex.setInput(0, n.node(L.FINAL[m]))
+        out = D + '%s_%s.png' % (tag, m)
+        if os.path.exists(out): os.remove(out)
+        ex.parm('copoutput').set(out); ex.parm('execute').pressButton()
+cook(B + 'backups/2026-10-02_before_variants/CeramicGreen_Height_V5.hiplc', 'orig', True)
+cook(hip, 'new', False)
+bad = 0
+for m in L.MAPS:
+    a = np.asarray(Image.open(D + 'orig_%s.png' % m), float); b = np.asarray(Image.open(D + 'new_%s.png' % m), float)
+    d = float(np.abs(a - b).max()); bad += d > 0; print('%-9s maxdiff %.1f' % (m, d))
+print('NON REGRESSION', 'OK' if not bad else 'FAIL'); sys.exit(1 if bad else 0)

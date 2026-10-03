@@ -1,0 +1,16 @@
+# 2 October 2026 : mask of the tan clay lines of a reference (the ridge lines and joint hairlines), by colour then thinness. Usage: python3 Scripts/TanMask.py <ref.png> <out mask.png> [hue lo,hi degrees = 18,48] [sat min = 0.30] [val min = 0.30]. FR : masque des lignes d'argile.
+import sys, numpy as np, colorsys
+from PIL import Image
+from scipy import ndimage as ndi
+im = Image.open(sys.argv[1]).convert('RGB'); a = np.asarray(im, np.float32) / 255.0
+hsv = np.asarray(im.convert('HSV'), np.float32) / 255.0
+h = hsv[..., 0] * 360.0; s = hsv[..., 1]; v = hsv[..., 2]
+lo, hi = (float(x) for x in (sys.argv[3] if len(sys.argv) > 3 else '18,48').split(','))
+smin = float(sys.argv[4]) if len(sys.argv) > 4 else 0.30; vmin = float(sys.argv[5]) if len(sys.argv) > 5 else 0.30
+m = (h >= lo) & (h <= hi) & (s >= smin) & (v >= vmin)
+# thin structure only: remove what survives an opening of radius 5 (wide brown glaze areas)
+r = 5; yy, xx = np.mgrid[-r:r + 1, -r:r + 1]; disk = (xx * xx + yy * yy) <= r * r
+wide = ndi.binary_opening(m, structure=disk)
+thin = m & ~ndi.binary_dilation(wide, structure=disk)
+thin = ndi.binary_opening(thin, structure=np.ones((2, 2)))
+Image.fromarray((thin * 255).astype(np.uint8)).save(sys.argv[2]); print('tan pixels', int(thin.sum()), 'fraction %.4f' % thin.mean())

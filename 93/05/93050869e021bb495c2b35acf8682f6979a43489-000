@@ -1,0 +1,15 @@
+# 1 October 2026 : renders a LIST of Houdini-numbered frames of the Unreal commercial, one Movie Render Queue job per frame (the queue renders a contiguous range, a list needs several jobs), through the editor queue bridge (Scripts/UeQueue.py + unreal/ue_render.py).
+# Usage: python3 Scripts/RenderUeFrames.py <outdir> <res> <spatial> <temporal> <frames a,b,c> [warmup = 8]. Skips frames already in <outdir>. Prints the seconds of each frame. FR : rend une liste d'images de la version Unreal de la pub.
+import sys, os, json, time, subprocess
+B = '/Users/zenray/Create/Build/Productions/ZenRayHoudini/CeramicTiles/'
+out = os.path.abspath(sys.argv[1]); res, sp, tp = int(sys.argv[2]), int(sys.argv[3]), int(sys.argv[4]); frames = [int(x) for x in sys.argv[5].split(',')]; warm = int(sys.argv[6]) if len(sys.argv) > 6 else 8
+os.makedirs(out, exist_ok=True); t00 = time.time()
+for f in frames:
+    dst = out + '/ad_%04d.png' % f
+    if os.path.exists(dst): continue
+    json.dump({'start': f, 'end': f, 'res': res, 'spatial': sp, 'temporal': tp, 'warmup': warm, 'out': out, 'cvars': {}}, open(B + 'unreal/render_job.json', 'w'))
+    t = time.time(); r = subprocess.run([sys.executable, B + 'Scripts/UeQueue.py', B + 'unreal/ue_render.py', '120'], capture_output=True, text=True)
+    if not r.stdout.startswith('OK'): print('frame', f, 'ERROR', r.stdout[-300:]); continue
+    while not os.path.exists(dst) and time.time() - t < 600: time.sleep(0.5)
+    time.sleep(1.0); print('frame %d: %.1f s%s' % (f, time.time() - t, '' if os.path.exists(dst) else ' MISSING'), flush=True)
+print('total %.0f s for %d frames' % (time.time() - t00, len(frames)))

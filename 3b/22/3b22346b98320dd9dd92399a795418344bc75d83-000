@@ -1,0 +1,17 @@
+{
+  "_comment": "1 October 2026 : parameters of MakeThumbMaps.py (the HDA interface of the 1:1 thumbnail: five final maps as background, the graded green sphere in front). Change a value HERE, never in the script. FR : interface de parametres de la miniature 1:1.",
+  "canvas": 4096,
+  "maps_dir": "render/maps_4096/",
+  "maps": ["CeramicGreen_V6_normal.png", "CeramicGreen_V6_basecolor_green.png", "CeramicGreen_V6_roughness.png", "CeramicGreen_V6_ao.png", "CeramicGreen_V6_height.png"],
+  "crop_x0": 614,
+  "sphere_beauty": "~/.claude/tmp/tmp-ad-colour-grade/sphere/beauty/ad_0490.png",
+  "sphere_mask": "~/.claude/tmp/tmp-ad-colour-grade/sphere/mask/ad_0490.png",
+  "grade_block": "~/.claude/tmp/tmp-ad-colour-grade/grade-block.txt",
+  "sphere_diameter_px": 3000,
+  "sphere_center_px": [2048, 2048],
+  "halo_sigma_px": 150,
+  "halo_strength": 0.85,
+  "out_png": "render/thumbnail-maps-sphere-4096.png",
+  "out_jpg": "render/thumbnail-maps-sphere-4096.jpg",
+  "jpg_quality": 95
+}

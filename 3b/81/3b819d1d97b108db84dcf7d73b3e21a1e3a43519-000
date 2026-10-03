@@ -1,0 +1,95 @@
+# 2 October 2026 : VARIANT 2, reference 02a (julien-delannoy-11 left): 5 x 5 tiles of the Truchet kind. Every tile carries two QUARTER ARCS of radius half a tile centred on two OPPOSITE corners (orientation table measured on the reference, Scripts/Fit02a.py),
+# the arcs join across the tiles into circles and S curves; the regions between the arcs alternate between PLATEAU and DISH (parity = inside the tile discs XOR a per tile bit, solved by continuity across the tile edges). The arc is a tan clay band, joints are dark hairlines. FR : variante 2, arcs de Truchet.
+import hou, json, sys
+sys.path.insert(0, '/Users/zenray/Create/Build/Productions/ZenRayHoudini/CeramicTiles/Scripts')
+import VariantLib as L, VariantEngine as E
+D = json.load(open(L.B + 'ref-maps/v02a.json'))
+CP = '/obj/CeramicGreen_Height/'
+def T(code, **kw):
+    kw.setdefault('c', CP)
+    for k, v in kw.items(): code = code.replace('<<%s>>' % k, str(v))
+    return code
+f3 = lambda a: ', '.join('%.4f' % x for x in a)
+SPECS = [
+    {'name': 'v2_radius', 'label': 'Arc radius (tiles)', 'default': 0.5, 'range': (0.3, 0.7), 'help': 'Radius of the quarter arcs in tile units. 0.5 is measured on the reference: the arcs meet at the middle of the tile edges.'},
+    {'name': 'v2_wall', 'label': 'Dish depth', 'default': 0.30, 'range': (0.0, 0.6)},
+    {'name': 'v2_bowl', 'label': 'Dish wall width', 'default': 0.16, 'range': (0.02, 0.5), 'help': 'Distance from the arc over which the wall falls to the floor of the dish (tile units).'},
+    {'name': 'v2_band_width', 'label': 'Tan band width', 'default': 0.042, 'range': (0.004, 0.08)},
+    {'name': 'v2_joint_width', 'label': 'Joint width', 'default': 0.005, 'range': (0.001, 0.03)},
+    {'name': 'v2_cloud', 'label': 'Glaze cloud strength', 'default': 0.5, 'range': (0.0, 1.5)},
+    {'name': 'v2_tint', 'label': 'Glaze hue shift', 'default': 0.0, 'range': (-0.5, 0.5), 'help': '0 is the teal of the reference; the value rotates the glaze hue (fraction of the colour wheel).'},
+    {'name': 'v2_lip', 'label': 'Plateau lip height', 'default': 0.06, 'range': (0.0, 0.2)},
+]
+LIB = '''
+vector lin3(vector c) { return set(srgb2lin(c.x), srgb2lin(c.y), srgb2lin(c.z)); }
+float arcd(vector2 p; vector2 c; vector2 sg; float R) {
+    vector2 q = p - c;
+    if (q.x * sg.x >= 0.0 && q.y * sg.y >= 0.0) return abs(length(q) - R);
+    vector2 e1 = set(c.x + sg.x * R, c.y); vector2 e2 = set(c.x, c.y + sg.y * R);
+    return min(length(p - e1), length(p - e2));
+}
+'''
+ORI = sum(D['orientation'], []); CPA = sum(D['parity_xor'], [])
+PRELUDE = T('''
+int ORI[] = {<<ori>>}; int CPA[] = {<<cpa>>};
+int NT = 5;
+float gx = (@P.x * 0.5 + 0.5) * NT; float gy = (0.5 - @P.y * 0.5) * NT;
+int tc = clamp(int(floor(gx)), 0, NT - 1); int tr = clamp(int(floor(gy)), 0, NT - 1);
+float u = gx - float(tc); float v = gy - float(tr);                                    // 0 .. 1 in the tile, v measured down
+int tid = tr * NT + tc; float R = chf("<<c>>v2_radius");
+float dmin = 9.0;                                                                      // distance (tile units) to the nearest arc, arcs of the 3 x 3 neighbouring tiles included
+for (int dr = -1; dr <= 1; dr++) { for (int dc = -1; dc <= 1; dc++) {
+    int r2 = tr + dr; int c2 = tc + dc;
+    if (r2 < 0 || r2 >= NT || c2 < 0 || c2 >= NT) continue;
+    vector2 pp = set(u - float(dc), v - float(dr));
+    if (ORI[r2 * NT + c2] == 0) { dmin = min(dmin, arcd(pp, set(0.0, 0.0), set(1.0, 1.0), R)); dmin = min(dmin, arcd(pp, set(1.0, 1.0), set(-1.0, -1.0), R)); }
+    else { dmin = min(dmin, arcd(pp, set(1.0, 0.0), set(-1.0, 1.0), R)); dmin = min(dmin, arcd(pp, set(0.0, 1.0), set(1.0, -1.0), R)); }
+} }
+int ins = 0;
+if (ORI[tid] == 0) { if (length(set(u, v)) < R || length(set(u - 1.0, v - 1.0)) < R) ins = 1; } else { if (length(set(u - 1.0, v)) < R || length(set(u, v - 1.0)) < R) ins = 1; }
+int par = ins ^ CPA[tid];                                                              // 1 = dish, 0 = plateau
+float ed = 0.5 - max(abs(u - 0.5), abs(v - 0.5));                                      // distance to the tile edge
+''', ori=', '.join(str(x) for x in ORI), cpa=', '.join(str(x) for x in CPA))
+H = [
+ ('plateau', 'S.x = 0.60;'),
+ ('lip', T('float lipw = 0.03;\nS.x += chf("<<c>>v2_lip") * (1.0 - sm(0.0, lipw, dmin)) * (1.0 - float(par));')),
+ ('dish_wall', T('float bowl = chf("<<c>>v2_bowl"); float t = clamp(dmin / bowl, 0.0, 1.0); float prof = 1.0 - pow(1.0 - t, 3.0);\nS.x -= float(par) * chf("<<c>>v2_wall") * prof;')),
+ ('dish_floor', T('S.x -= float(par) * chf("<<c>>v2_wall") * 0.18 * sm(chf("<<c>>v2_bowl"), 0.5, dmin);')),
+ ('joints', T('float jw = chf("<<c>>v2_joint_width");\nS.x -= 0.05 * (1.0 - sm(0.0, jw, ed));')),
+ ('micro', 'S.x += 0.0025 * (noise(set(@P.x * 90.0, @P.y * 90.0, 1.0)) - 0.5);'),
+]
+B = [
+ ('glaze', T('''vector base = lin3(set(<<pl>>)); vector dishc = lin3(set(<<dl>>));
+vector gc = lerp(base, dishc, float(par));
+float cl = 1.0 + chf("<<c>>v2_cloud") * 0.7 * (fbm2(@P.x * 5.0, @P.y * 5.0, 1.3) - 0.45);
+float vein = 0.5 + 0.5 * sin(60.0 * fbm2(@P.x * 3.0, @P.y * 3.0, 7.0));
+gc *= cl * (0.92 + 0.14 * vein);
+float hs = chf("<<c>>v2_tint") * 6.2831853; float cs = cos(hs); float sn = sin(hs); float lm = dot(gc, set(0.2126, 0.7152, 0.0722));
+vector dv = gc - set(lm, lm, lm); vector ax = normalize(set(1.0, 1.0, 1.0));
+vector rot = dv * cs + cross(ax, dv) * sn + ax * dot(ax, dv) * (1.0 - cs);
+S = withrgb(set(lm, lm, lm) + rot);''', pl=f3(D['plateau_colour_srgb']), dl=f3(D['dish_colour_srgb']))),
+ ('band', T('float bw = chf("<<c>>v2_band_width"); float band = 1.0 - sm(bw * 0.4, bw * 0.5, dmin);\nS = withrgb(lerp(rgb(S), lin3(set(<<tn>>)), band));', tn=f3(D['tan_srgb']))),
+ ('joints', T('float jw = chf("<<c>>v2_joint_width"); float dark = 1.0 - sm(0.0, jw * 0.6, ed); float flank = (1.0 - sm(jw * 0.6, jw * 1.8, ed)) * (1.0 - dark);\nS = withrgb(lerp(rgb(S), lin3(set(0.04, 0.05, 0.04)), dark)); S = withrgb(lerp(rgb(S), lin3(set(0.30, 0.24, 0.14)), flank * 0.7));')),
+ ('fringe', 'float near = (1.0 - sm(0.0, 0.05, dmin)) * float(par); float dots = sm(0.56, 0.64, noise(set(@P.x * 380.0, @P.y * 380.0, 3.0)));\nS = withrgb(lerp(rgb(S), lin3(set(0.46, 0.30, 0.16)), near * dots * 0.8));'),
+ ('speckle', 'float sp2 = sm(0.80, 0.84, noise(set(@P.x * 700.0, @P.y * 700.0, 5.0)));\nS = withrgb(lerp(rgb(S), lin3(set(0.20, 0.45, 0.38)), sp2 * 0.5));'),
+]
+R = [
+ ('base', 'S.x = 0.06;'),
+ ('band_joint', T('float bw = chf("<<c>>v2_band_width"); float band = 1.0 - sm(bw * 0.4, bw * 0.5, dmin); float jw = chf("<<c>>v2_joint_width"); float jt = 1.0 - sm(0.0, jw * 1.5, ed);\nS.x = lerp(S.x, 0.45, band); S.x = lerp(S.x, 0.5, jt);')),
+ ('grain', 'S.x += 0.05 * (noise(set(@P.x * 300.0, @P.y * 300.0, 9.0)) - 0.5);'),
+]
+F = [
+ ('base', 'S = set(1.0, 1.0, 1.0, 1.0);'),
+ ('band_joint', T('float bw = chf("<<c>>v2_band_width"); float band = 1.0 - sm(bw * 0.4, bw * 0.5, dmin); float jw = chf("<<c>>v2_joint_width"); float jt = 1.0 - sm(0.0, jw * 1.5, ed);\nfloat k = lerp(1.0, 0.18, band); k = lerp(k, 0.15, jt); S = set(k, k, k, 1.0);')),
+]
+A = [
+ ('base', 'S.x = 1.0;'),
+ ('crevice', T('float jw = chf("<<c>>v2_joint_width"); float jt = 1.0 - sm(0.0, jw * 3.0, ed);\nS.x = 1.0 - float(par) * 0.45 * (1.0 - sm(0.0, 0.14, dmin)) - 0.30 * jt;')),
+]
+VARIANT = dict(prefix='V2', lib=LIB, prelude=PRELUDE, base_input='A1_layout__tile_grid_4x4', ypos=-60.0, colour=(0.45, 0.8, 0.7), stages={'height': H, 'basecolor': B, 'roughness': R, 'reflect': F, 'ao': A}, normal_scale=0.10)
+def build(fuse):
+    L.add_folder('HDA 02a Serpentine', SPECS)
+    o = E.build(VARIANT, fuse)
+    o['normal'] = E.normals(VARIANT, o['height'], VARIANT['normal_scale'])
+    E.wire_switch(2, o)
+    return o

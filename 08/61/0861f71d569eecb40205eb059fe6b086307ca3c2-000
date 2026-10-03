@@ -1,0 +1,72 @@
+# 2 October 2026 : VARIANT 1, reference 01b (julien-delannoy-10 right): 6 x 6 pillow tiles. Each tile is a SQUIRCLE cushion (superellipse, exponent ~2.8 measured on the stack of the 16 interior tiles) that touches the four joints at their middle and leaves a four pointed STAR void at each junction;
+# the outline is a thin tan clay band, the joints are dark hairlines with beige flanks, every tile has its own glaze colour (the 36 measured medians in ref-maps/v01b.json) and its own light tilt. Usage inside hython: exec this file, then build(fuse). FR : variante 1, tuiles coussins.
+import hou, json, sys
+sys.path.insert(0, '/Users/zenray/Create/Build/Productions/ZenRayHoudini/CeramicTiles/Scripts')
+import VariantLib as L, VariantEngine as E
+D = json.load(open(L.B + 'ref-maps/v01b.json'))
+def arr(nm, vals): return 'float %s[] = {%s};\n' % (nm, ', '.join('%.4f' % x for x in vals))
+CP = '/obj/CeramicGreen_Height/'
+SPECS = [
+    {'name': 'v1_tiles', 'label': 'Tiles per side', 'kind': 'int', 'default': 6, 'range': (2, 12)},
+    {'name': 'v1_squircle', 'label': 'Cushion squareness', 'default': 2.4, 'range': (2.0, 8.0), 'help': 'Superellipse exponent of the cushion outline: 2 is a circle (the inscribed circle of the tile), 8 almost a square. Overlays and the stack of 16 tiles on the reference give 2 to 2.8.'},
+    {'name': 'v1_dome', 'label': 'Dome height', 'default': 0.45, 'range': (0.0, 1.0)},
+    {'name': 'v1_wall', 'label': 'Star void depth', 'default': 0.45, 'range': (0.0, 1.0)},
+    {'name': 'v1_band_width', 'label': 'Tan band width', 'default': 0.014, 'range': (0.002, 0.06)},
+    {'name': 'v1_joint_width', 'label': 'Joint width', 'default': 0.006, 'range': (0.001, 0.03)},
+    {'name': 'v1_tile_tilt', 'label': 'Per tile light tilt', 'default': 0.5, 'range': (0.0, 2.0)},
+    {'name': 'v1_palette_seed', 'label': 'Palette seed (0 = reference)', 'default': 0.0, 'range': (0.0, 999.0), 'help': '0 gives the 36 colours measured on the reference; any other value draws a random palette.'},
+]
+PRELUDE = '''
+int NT = chi("%(c)sv1_tiles");
+float gx = (@P.x * 0.5 + 0.5) * NT; float gy = (0.5 - @P.y * 0.5) * NT;
+int tc = clamp(int(floor(gx)), 0, NT - 1); int tr = clamp(int(floor(gy)), 0, NT - 1);
+float u = gx - float(tc) - 0.5; float v = gy - float(tr) - 0.5;                       // tile centred coordinates, -0.5 .. 0.5
+float sqn = chf("%(c)sv1_squircle");
+float rr = pow(pow(abs(u) * 2.0, sqn) + pow(abs(v) * 2.0, sqn), 1.0 / sqn);           // 1 on the cushion outline
+float sd = (rr - 1.0) * 0.5;                                                          // signed distance in tile units, negative inside the cushion
+float ed = 0.5 - max(abs(u), abs(v));                                                 // distance to the tile edge
+int tid = tr * NT + tc;
+float ta = hsh(tid, 1.0) * 2.0 - 1.0; float tb = hsh(tid, 2.0) * 2.0 - 1.0;          // random tilt direction of the tile
+''' % {'c': CP}
+PAL = arr('TR', [c[0] for c in D['colours_srgb']]) + arr('TG', [c[1] for c in D['colours_srgb']]) + arr('TB', [c[2] for c in D['colours_srgb']])
+H = [
+ ('floor', 'S.x = 0.12;'),
+ ('cushion', 'float w = sm(0.012, -0.012, sd); float dome = max(1.0 - rr * rr, 0.0);\nS.x += w * (chf("%(c)sv1_wall") + chf("%(c)sv1_dome") * dome);' % {'c': CP}),
+ ('tilt', 'float w = sm(0.012, -0.012, sd);\nS.x += w * chf("%(c)sv1_tile_tilt") * 0.06 * (ta * u + tb * v + 1.6 * (hsh(tid, 3.0) * 2.0 - 1.0) * u * v);' % {'c': CP}),
+ ('star_floor', 'float c = max(0.5 - abs(u), 0.5 - abs(v)); float w = sm(0.012, -0.012, sd);   // sunken PYRAMID at the junction: lowest at the corner, four facets, diagonal ridges\nS.x += (1.0 - w) * chf("%(c)sv1_wall") * 0.8 * sm(0.0, 0.30, c);' % {'c': CP}),
+ ('joints', 'float jw = chf("%(c)sv1_joint_width");\nS.x -= 0.05 * (1.0 - sm(0.0, jw, ed));' % {'c': CP}),
+ ('micro', 'S.x += 0.0025 * (noise(set(@P.x * 90.0, @P.y * 90.0, 1.0)) - 0.5);'),
+]
+B = [
+ ('glaze', PAL + '''vector tcol = lin3(set(TR[tid], TG[tid], TB[tid]));
+float sp = chf("%(c)sv1_palette_seed");
+if (sp > 0.0) tcol = lin3(set(hsh(tid, sp), hsh(tid, sp + 1.0), hsh(tid, sp + 2.0)) * 0.6 + 0.2);
+float sh = 1.0 + chf("%(c)sv1_tile_tilt") * 0.7 * (ta * u + tb * v);
+float cl = 0.82 + 0.36 * fbm2(@P.x * 6.0, @P.y * 6.0, tid * 1.7);
+S = withrgb(tcol * sh * cl);''' % {'c': CP}),
+ ('void', 'float w = sm(0.012, -0.012, sd); vector voidc = lin3(set(0.30, 0.24, 0.19)) * (0.8 + 0.4 * noise(set(@P.x * 40.0, @P.y * 40.0, 2.0)));\nS = withrgb(lerp(voidc, rgb(S), w));'),
+ ('band', 'float bw = chf("%(c)sv1_band_width"); float band = 1.0 - sm(bw * 0.5, bw, abs(sd + bw * 0.15));\nS = withrgb(lerp(rgb(S), lin3(set(%(t0).3f, %(t1).3f, %(t2).3f)), band));' % {'c': CP, 't0': D['tan_srgb'][0] * 1.0, 't1': D['tan_srgb'][1] * 1.0, 't2': D['tan_srgb'][2] * 1.0}),
+ ('joints', 'float jw = chf("%(c)sv1_joint_width"); float dark = 1.0 - sm(0.0, jw * 0.6, ed); float flank = (1.0 - sm(jw * 0.6, jw * 1.8, ed)) * (1.0 - dark);\nS = withrgb(lerp(rgb(S), lin3(set(0.10, 0.07, 0.05)), dark)); S = withrgb(lerp(rgb(S), lin3(set(0.55, 0.42, 0.30)), flank * 0.8));' % {'c': CP}),
+ ('fringe', 'float near = 1.0 - sm(0.0, 0.04, abs(sd)); float dots = sm(0.58, 0.66, noise(set(@P.x * 400.0, @P.y * 400.0, 3.0)));\nS = withrgb(lerp(rgb(S), lin3(set(0.50, 0.30, 0.18)), near * dots * 0.8));'),
+ ('speckle', 'float sp2 = sm(0.80, 0.84, noise(set(@P.x * 700.0, @P.y * 700.0, 5.0)));\nS = withrgb(lerp(rgb(S), lin3(set(0.92, 0.92, 0.90)), sp2 * 0.5));'),
+]
+R = [
+ ('base', 'S.x = 0.07;'),
+ ('void_band_joint', 'float w = sm(0.012, -0.012, sd); float bw = chf("%(c)sv1_band_width"); float band = 1.0 - sm(bw * 0.5, bw, abs(sd + bw * 0.15)); float jw = chf("%(c)sv1_joint_width"); float jt = 1.0 - sm(0.0, jw * 1.5, ed);\nS.x = lerp(0.35, S.x, w); S.x = lerp(S.x, 0.45, band); S.x = lerp(S.x, 0.5, jt);' % {'c': CP}),
+ ('grain', 'S.x += 0.05 * (noise(set(@P.x * 300.0, @P.y * 300.0, 9.0)) - 0.5);'),
+]
+F = [
+ ('base', 'S = set(1.0, 1.0, 1.0, 1.0);'),
+ ('void_band_joint', 'float w = sm(0.012, -0.012, sd); float bw = chf("%(c)sv1_band_width"); float band = 1.0 - sm(bw * 0.5, bw, abs(sd + bw * 0.15)); float jw = chf("%(c)sv1_joint_width"); float jt = 1.0 - sm(0.0, jw * 1.5, ed);\nfloat k = lerp(0.2, 1.0, w); k = lerp(k, 0.15, band); k = lerp(k, 0.15, jt); S = set(k, k, k, 1.0);' % {'c': CP}),
+]
+A = [
+ ('base', 'S.x = 1.0;'),
+ ('crevice', 'float w = sm(0.012, -0.012, sd); float jw = chf("%(c)sv1_joint_width"); float jt = 1.0 - sm(0.0, jw * 3.0, ed); float wallshade = 1.0 - sm(0.0, 0.05, abs(sd));\nS.x = 1.0 - 0.55 * (1.0 - w) - 0.30 * jt - 0.20 * wallshade * w;' % {'c': CP}),
+]
+VARIANT = dict(prefix='V1', lib='vector lin3(vector c) { return set(srgb2lin(c.x), srgb2lin(c.y), srgb2lin(c.z)); }\n', prelude=PRELUDE, base_input='A1_layout__tile_grid_4x4', ypos=-30.0, colour=(0.85, 0.65, 0.3), stages={'height': H, 'basecolor': B, 'roughness': R, 'reflect': F, 'ao': A}, normal_scale=0.09)
+def build(fuse):
+    L.add_folder('HDA 01b Pillow', SPECS)
+    o = E.build(VARIANT, fuse)
+    o['normal'] = E.normals(VARIANT, o['height'], VARIANT['normal_scale'])
+    E.wire_switch(1, o)
+    return o

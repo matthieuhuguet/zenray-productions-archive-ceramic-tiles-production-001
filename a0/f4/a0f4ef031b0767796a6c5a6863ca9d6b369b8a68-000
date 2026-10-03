@@ -1,0 +1,67 @@
+# 1 October 2026 : patch (idempotent). Builds the scene of storyboard v2 from Scripts/AdShots.py:
+#  - the three planes in a row (green at x = -4.2, multicolour at 0 = the original cg_plane, teal at +4.2) with their own material each (CeramicAd_green / _multi / _teal: fixed texture and fixed colour multiplier, nothing depends on colour_set any more);
+#  - the spheres (shots 4 to 6): one unit sphere with square-tile UVs, one sopimport + one animated xform LOP per sphere, the material by colour;
+#  - ONE merge, ONE assignmaterial. Memory: the planes are 16 quads (the dense 160000 quad grid rendered the same: mean difference 0.0014, noise only); every object loads its own basecolor map only.
+# FR : la scene du storyboard v2 : trois plans, des spheres, un materiau par couleur.
+import hou, runpy
+B = '/Users/zenray/.claude/tmp/tmp-houdini-september-2026/tmp-materials-substance-copernicus-30-09-2026/'
+A = runpy.run_path(B + 'Scripts/AdShots.py')
+st = hou.node('/stage'); mat = hou.node('/mat'); obj = hou.node('/obj')
+NETP = '/obj/CeramicGreen_Height'
+# --- 0. the plane SOP is coarse (16 quads)
+g = obj.node('CeramicGreen_Plane').node('plane_4x4_tiles'); g.parm('rows').set(5); g.parm('cols').set(5)
+# --- 1. materials
+TEX = {'green': 'CeramicGreen_V6_basecolor_green.png', 'multi': 'CeramicGreen_V6_basecolor_multi.png', 'teal': 'CeramicGreen_V6_basecolor_teal.png'}
+MULT = {'green': (0.086, 0.099, 0.056), 'multi': (0.297, 0.297, 0.297), 'teal': (0.297, 0.297, 0.297)}      # colour multiplier of the shader (see PatchMaterialSwitch.py)
+src = mat.node('CeramicGreen_Material')
+for c in ('green', 'multi', 'teal'):
+    name = 'CeramicAd_' + c; m = mat.node(name)
+    if m is None:
+        m = hou.copyNodesTo([src], mat)[0]; m.setName(name, True)
+    m.parm('basecolor_texture').deleteAllKeyframes(); m.parm('basecolor_texture').set(B + 'render/' + TEX[c]); m.parm('basecolor_useTexture').set(1)
+    for pn, v in zip(('basecolorr', 'basecolorg', 'basecolorb'), MULT[c]):
+        m.parm(pn).setExpression('%.3f * ch("%s/glaze_tint")' % (v, NETP), hou.exprLanguage.Hscript)
+    m.moveToGoodPosition()
+# --- 2. the sphere SOP: a cube sphere (PatchSphereCube.py), six faces with a full set of square-tile UVs each, no pole
+runpy.run_path(B + 'Scripts/PatchSphereCube.py')
+# --- 3. the LOP objects
+def sopimport(name, soppath, prefix):
+    n = st.node(name) or st.createNode('sopimport', name); n.parm('soppath').set(soppath); n.parm('pathprefix').set(prefix); return n
+def xform(name, src, pattern):
+    n = st.node(name) or st.createNode('xform', name); n.setInput(0, src); n.parm('primpattern').set(pattern); return n
+plane_out = '/obj/CeramicGreen_Plane/assign_ceramic_green'
+objs = [st.node('cg_plane')]
+for c in ('green', 'teal'):
+    imp = sopimport('cg_plane_' + c[0], plane_out, '/cg_plane_' + c[0])
+    xf = xform('cg_xf_plane_' + c[0], imp, '/cg_plane_' + c[0]); xf.parm('tx').set(A['PLANE_X'][c]); objs.append(xf)
+SPH = A['SPHERES']; SF = A['SHOT_FRAMES']
+for s in SPH:
+    sid, shot, col, x, y, z, rad, rot = s
+    imp = sopimport('cg_imp_' + sid, '/obj/CeramicGreen_Sphere/OUT', '/ad_' + sid)
+    xf = xform('cg_xf_' + sid, imp, '/ad_' + sid)
+    for pn in ('tx', 'ty', 'tz', 'rx', 'ry', 'rz', 'sx', 'sy', 'sz'): xf.parm(pn).deleteAllKeyframes()
+    xf.parm('tx').set(x); xf.parm('ty').set(y); xf.parm('tz').set(z)
+    for pn in ('sx', 'sy', 'sz'): xf.parm(pn).set(rad)
+    xf.parm('rOrd').set('yxz')           # spin about Y first, then the tilt about X, then Z
+    f0 = 1 + SF * shot
+    for f in list(range(f0, f0 + SF, 4)) + [f0 + SF - 1]:
+        r = A['sphere_rotation'](s, (f - f0) / (SF - 1))
+        for pn, v in zip(('rx', 'ry', 'rz'), r):
+            k = hou.Keyframe(); k.setFrame(f); k.setValue(v); k.setExpression('linear()', hou.exprLanguage.Hscript); xf.parm(pn).setKeyframe(k)
+    objs.append(xf)
+mg = st.node('cg_merge') or st.createNode('merge', 'cg_merge')
+for i in range(len(mg.inputs()) + 1): 
+    try: mg.setInput(i, None)
+    except Exception: pass
+for i, o in enumerate(objs): mg.setInput(i, o)
+# --- 4. the material library lists the three ad materials (entries 3 to 5), then ONE assignmaterial
+lib = st.node('cg_materials'); lib.setInput(0, mg)
+lib.parm('materials').set(2 + 3)
+for i, c in enumerate(('green', 'multi', 'teal'), 3):
+    lib.parm('matflag%d' % i).set(0); lib.parm('matnode%d' % i).set('../../mat/CeramicAd_' + c); lib.parm('matpath%d' % i).set('CeramicAd_' + c)
+pat = {'green': ['/cg_plane_g/*'], 'multi': ['/cg_plane/*'], 'teal': ['/cg_plane_t/*']}
+for s in SPH: pat[s[2]].append('/ad_%s/*' % s[0])
+asg = st.node('cg_assign'); cols = ('green', 'multi', 'teal'); asg.parm('nummaterials').set(len(cols))
+for i, c in enumerate(cols, 1):
+    asg.parm('primpattern%d' % i).set(' '.join(pat[c])); asg.parm('matspecmethod%d' % i).set(0); asg.parm('matspecpath%d' % i).set('/materials/CeramicAd_' + c)
+st.layoutChildren()

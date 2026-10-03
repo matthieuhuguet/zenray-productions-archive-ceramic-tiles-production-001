@@ -1,0 +1,23 @@
+# 2 October 2026 : INFRASTRUCTURE of the variant graph (idempotent). Adds to the master COP network (1) the HDA folder "HDA Variant" with the menu `variant` (0 = 01a green lenses, the existing graph, untouched; 1 = 01b pillow tiles; 2 = 02a serpentine arcs; 3 = 02b cushion tiles),
+# (2) one SWITCH COP per final map, input 0 = what the FINAL null received before (so variant 0 is bit for bit the previous graph), inputs 1..3 = the three new branches (wired by the variant scripts), the FINAL nulls now read the switches,
+# (3) six export ROPs VX_export__<map> that read the FINAL nulls (the old U4_export__* ROPs stay untouched). Usage: hython Scripts/V2Infra.py <hip in> <hip out>. FR : socle commun des variantes.
+import hou, sys
+sys.path.insert(0, '/Users/zenray/Create/Build/Productions/ZenRayHoudini/CeramicTiles/Scripts')
+import VariantLib as L
+hou.hipFile.load(sys.argv[1], suppress_save_prompt=True, ignore_load_warnings=True)
+n = L.net()
+L.add_folder('HDA Variant', [{'name': 'variant', 'label': 'Variant', 'kind': 'menu', 'default': 0, 'menu': ['01a green lenses', '01b pillow tiles', '02a serpentine arcs', '02b cushion tiles'], 'help': 'Which Julien Delannoy ceramic pattern the six final maps show. 0 is the original graph.'}])
+for i, m in enumerate(L.MAPS):
+    fin = n.node(L.FINAL[m]); name = 'SW_%d_%s' % (i + 1, m.upper())
+    sw = n.node(name)
+    if sw is None:
+        src = fin.inputs()[0]
+        sw = n.createNode('switch', name); sw.setInput(0, src); fin.setInput(0, sw)
+        sw.setPosition(fin.position() + hou.Vector2(-2.6, 0)); sw.setColor(hou.Color((0.35, 0.55, 0.85)))
+    sw.parm('input').setExpression('ch("../variant")')
+    ex = n.node('VX_export__%s' % m)
+    if ex is None:
+        ex = n.createNode('rop_image', 'VX_export__%s' % m); ex.setInput(0, fin); ex.setPosition(fin.position() + hou.Vector2(2.6, 0)); ex.setColor(hou.Color((0.35, 0.85, 0.55)))
+        ex.parm('copoutput').set(L.B + 'render/variants/%s.png' % m)
+print('children', len(n.children()), 'variant', n.parm('variant').eval())
+hou.hipFile.save(sys.argv[2]); print('saved', sys.argv[2])

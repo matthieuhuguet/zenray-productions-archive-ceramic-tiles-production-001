@@ -1,0 +1,79 @@
+# 1 October 2026 : tidy the fused graph. (1) deletes the nodes that no FINAL map or export reads (dead branches of earlier versions: the old v5 outputs and exports, a whole dead 95 layer chain);
+# (2) lays the rest out left to right by dependency depth, one horizontal band per map (shared layout and relief on top, then height, normal, basecolor, roughness, reflect, AO);
+# (3) puts the six FINAL nodes in ONE COLUMN (the preview column, left) with the six export ROPs in the column right next to it; (4) one network box per band, colours by role.
+# Idempotent: run it again after any patch that adds nodes. FR : range le graphe, les six FINAL sur une meme colonne.
+import hou, collections
+net = hou.node('/obj/CeramicGreen_Height')
+KEEP_ALWAYS = ('FINAL_', 'U4_export__')
+roots = [n for n in net.children() if n.name().startswith(KEEP_ALWAYS)]
+def upstream(n, seen):
+    if n.name() in seen: return seen
+    seen.add(n.name())
+    for i in n.inputs():
+        if i is not None: upstream(i, seen)
+    return seen
+alive = set()
+for r in roots: upstream(r, alive)
+dead = [n for n in net.children() if n.name() not in alive]
+removed = sorted(n.name() for n in dead)
+for n in dead: n.destroy()
+for b in net.networkBoxes(): b.destroy()
+nodes = {n.name(): n for n in net.children()}
+MAPS = [('height', 'FINAL_1_HEIGHT'), ('normal', 'FINAL_2_NORMAL'), ('basecolor', 'FINAL_3_BASECOLOR'), ('roughness', 'FINAL_4_ROUGHNESS'), ('reflect', 'FINAL_6_REFLECT'), ('ao', 'FINAL_5_AO')]
+FINAL_ORDER = ['FINAL_1_HEIGHT', 'FINAL_2_NORMAL', 'FINAL_3_BASECOLOR', 'FINAL_4_ROUGHNESS', 'FINAL_5_AO', 'FINAL_6_REFLECT']
+up = {m: upstream(nodes[f], set()) for m, f in MAPS}
+membership = {nm: tuple(m for m, _ in MAPS if nm in up[m]) for nm in nodes}
+def band_of(nm):
+    if nm.startswith('FINAL_') or nm.startswith('U4_export__'): return 'finals'
+    ms = membership[nm]
+    return ms[0] if len(ms) == 1 else 'core'
+# depth = longest path measured INSIDE the node's own band (inputs coming from another band count as sources), so each band is compact instead of being stretched by the depth of the shared core
+depth = {}
+def dep(n):
+    if n.name() in depth: return depth[n.name()]
+    d = 0; b = band_of(n.name())
+    for i in n.inputs():
+        if i is not None and band_of(i.name()) == b: d = max(d, dep(i) + 1)
+    depth[n.name()] = d; return d
+for n in nodes.values(): dep(n)
+BANDS = ['core', 'height', 'normal', 'basecolor', 'roughness', 'reflect', 'ao']
+TITLE = {'core': 'CORE  tile layout, distances to the arcs, glow, relief height (read by several maps)', 'height': 'HEIGHT  only what the height map needs', 'normal': 'NORMAL  from the height, micro bumps, slope limiter, flat band, ridge bevel',
+         'basecolor': 'BASECOLOR  measured albedo, calibration gain, hue, clean cut, contact shadow, band and fringe match', 'roughness': 'ROUGHNESS  glaze and joint, terracotta mask', 'reflect': 'REFLECT  64 cell reflection map, gain, terracotta coat weight', 'ao': 'AO  rings, joints, cavities', 'finals': 'FINAL maps (preview column) and their exports'}
+COLOR = {'core': (0.55, 0.55, 0.60), 'height': (0.55, 0.70, 0.95), 'normal': (0.60, 0.60, 0.95), 'basecolor': (0.50, 0.80, 0.50), 'roughness': (0.95, 0.75, 0.45), 'reflect': (0.50, 0.85, 0.90), 'ao': (0.75, 0.75, 0.75), 'finals': (0.95, 0.85, 0.25)}
+DX, DY, X0 = 2.6, 1.15, 0.0
+placed = collections.defaultdict(int); band_rows = {}
+cell = collections.defaultdict(int)
+for nm, n in sorted(nodes.items(), key=lambda kv: (depth[kv[0]], kv[0])):
+    b = band_of(nm)
+    if b == 'finals': continue
+    cell[(b, depth[nm])] += 1
+for b in BANDS: band_rows[b] = max([cell[(b, d)] for d in range(0, 200) if (b, d) in cell] + [1])
+band_y = {}; y = 0.0
+for b in BANDS:
+    band_y[b] = y; y -= (band_rows[b] + 1.6) * DY
+slot = collections.defaultdict(int)
+for nm, n in sorted(nodes.items(), key=lambda kv: (depth[kv[0]], kv[0])):
+    b = band_of(nm)
+    if b == 'finals': continue
+    r = slot[(b, depth[nm])]; slot[(b, depth[nm])] += 1
+    n.setPosition(hou.Vector2(X0 + depth[nm] * DX, band_y[b] - r * DY))
+    if nm.startswith('FZ') and 'fused' in nm: n.setColor(hou.Color((0.35, 0.85, 0.55)))
+    elif nm.startswith('FZ'): n.setColor(hou.Color((0.80, 0.80, 0.80)))
+    elif nm[:2] in ('N9', 'ZK', 'RK', 'ZL', 'ZM', 'ZI', 'N8', 'N7'): n.setColor(hou.Color((0.95, 0.65, 0.35)))
+# the preview column: FINAL nodes on ONE column, exports in the column next to it, same rows
+EXP = {'FINAL_1_HEIGHT': 'U4_export__height_v6', 'FINAL_2_NORMAL': 'U4_export__normal_v6', 'FINAL_3_BASECOLOR': 'U4_export__basecolor_v6', 'FINAL_4_ROUGHNESS': 'U4_export__roughness_v6', 'FINAL_5_AO': 'U4_export__ao_v6', 'FINAL_6_REFLECT': 'U4_export__reflect_v6'}
+XF = -9.0
+for i, f in enumerate(FINAL_ORDER):
+    nodes[f].setPosition(hou.Vector2(XF, -i * 1.6)); nodes[f].setColor(hou.Color((0.98, 0.88, 0.20)))
+    e = nodes[EXP[f]]; e.setPosition(hou.Vector2(XF + 3.2, -i * 1.6)); e.setColor(hou.Color((0.90, 0.45, 0.40)))
+# network boxes
+for b in BANDS + ['finals']:
+    members = [n for nm, n in nodes.items() if band_of(nm) == b]
+    if not members: continue
+    box = net.createNetworkBox(); box.setComment(TITLE[b]); box.setColor(hou.Color(COLOR[b]))
+    for n in members: box.addItem(n)
+    box.fitAroundContents()
+nodes['FINAL_3_BASECOLOR'].setDisplayFlag(True)
+net.setComment('Ceramic green: FINAL_x on the left column = preview of each map; bands from top to bottom: core, height, normal, basecolor, roughness, reflect, AO. Budget: 150 nodes (zenray-houdini skill).')
+net.setGenericFlag(hou.nodeFlag.Display, True) if False else None
+result = {'removed': removed, 'nodes': len(net.children()), 'band_rows': band_rows, 'bands': {b: sum(1 for nm in nodes if band_of(nm) == b) for b in BANDS + ['finals']}}

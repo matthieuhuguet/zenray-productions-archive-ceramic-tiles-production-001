@@ -1,0 +1,57 @@
+# 2 October 2026 : the VARIANT ENGINE. A variant is a list of STAGES per map; a stage is a piece of VEX that works on a running state `S` (vector4) and sees the tile geometry through a PRELUDE.
+# Phase 1 (explore) builds ONE wrangle per stage, chained; phase 2 (optimise) FUSES the stages of a map into ONE wrangle (same code, same order, braces for the scope, the state S stays in a local), so the maps are identical by construction (checked by comparing the exported maps).
+# Matthieu, 2 October 2026: "2 phases, 64 puis optimisations". Nodes of a variant = prefix + map + stage. FR : moteur des variantes, deux phases (couches puis fusion).
+import hou, sys
+sys.path.insert(0, '/Users/zenray/Create/Build/Productions/ZenRayHoudini/CeramicTiles/Scripts')
+import VariantLib as L
+LIB = '''
+float sm(float a; float b; float x) { float t = clamp((x - a) / (b - a), 0.0, 1.0); return t * t * (3.0 - 2.0 * t); }
+float hsh(float a; float b) { return rand(a * 12.9898 + b * 78.233); }
+float fbm2(float x; float y; float z) { return 0.5 * noise(set(x, y, z)) + 0.25 * noise(set(x * 2.03, y * 2.03, z + 3.1)) + 0.125 * noise(set(x * 4.1, y * 4.1, z + 7.7)) + 0.0625 * noise(set(x * 8.3, y * 8.3, z + 11.3)); }
+vector rgb(vector4 s) { return set(s.x, s.y, s.z); }
+vector4 withrgb(vector c) { return set(c.x, c.y, c.z, 1.0); }
+float srgb2lin(float x) { return x <= 0.04045 ? x / 12.92 : pow((x + 0.055) / 1.055, 2.4); }
+float lin2srgb(float x) { return x <= 0.0031308 ? x * 12.92 : 1.055 * pow(x, 1.0 / 2.4) - 0.055; }
+'''
+NET = '/obj/CeramicGreen_Height'
+def _phase_name(prefix, mp, i, nm): return '%s%s_%02d_%s' % (prefix, mp, i, nm)
+def build(variant, fuse):
+    """variant: dict(prefix, lib, prelude, stages{map:[(name, code)]}, normal_scale, base_input_name). Returns {map: final node}. Idempotent: nodes of the OTHER phase are deleted."""
+    n = L.net(); p = variant['prefix']; base = n.node(variant['base_input']); out = {}
+    y0 = variant['ypos']; col = variant['colour']
+    for row, mp in enumerate(('height', 'basecolor', 'roughness', 'reflect', 'ao')):
+        stages = variant['stages'][mp]; mono = mp in ('height', 'roughness', 'ao')
+        for ch in list(n.children()):
+            if ch.name().startswith('%s%s_' % (p, mp)): ch.destroy()
+        names = []
+        if fuse:
+            body = 'vector4 S = set(0.0, 0.0, 0.0, 1.0);\n' + ''.join('{\n' + variant['prelude'] + code + '\n}\n' for (_, code) in stages)
+            tail = 'f@C = S.x;' if mono else 'p@C = S;'
+            w = L.wrangle('%s%s_fused' % (p, mp), LIB + variant['lib'] + body + tail, [base], (0.0, y0 - row * 2.2), col)
+            w.parm('type1').set(0 if mono else 3); out[mp] = w
+        else:
+            prev = base
+            for i, (nm, code) in enumerate(stages):
+                last = i == len(stages) - 1
+                head = ('vector4 S = set(0.0, 0.0, 0.0, 1.0);\n' if i == 0 else 'vector4 S = p@C;\n')
+                tail = 'p@C = S;'                       # layered: the state stays RGBA from node to node (a wrangle cannot read RGBA and write mono under the same layer name)
+                w = L.wrangle(_phase_name(p, mp, i + 1, nm), LIB + variant['lib'] + head + variant['prelude'] + code + '\n' + tail, [prev if i else base], (2.6 * (i + 1), y0 - row * 2.2), col)
+                w.parm('type1').set(3); prev = w
+            if mono:
+                prev = L.node('channelextract', _phase_name(p, mp, len(stages) + 1, 'mono'), [prev], (2.6 * (len(stages) + 1), y0 - row * 2.2), col)
+            out[mp] = prev
+    return out
+def clean(variant, fuse_names=True):
+    n = L.net()
+    for ch in list(n.children()):
+        if ch.name().startswith(variant['prefix']) and ch.type().name() in ('wrangle', 'heighttonormal', 'null'): ch.destroy()
+def normals(variant, height_node, scale):
+    n = L.net(); p = variant['prefix']
+    hn = L.node('heighttonormal', p + 'NORMAL_01_from_height', [height_node], (2.6, variant['ypos'] - 6 * 2.2), variant['colour'], normaltype=1, scale=scale, readoutside=1, kernel=1)
+    fl = L.wrangle(p + 'NORMAL_02_flip_green_directx', 'v@C = set(@C.x, 1.0 - @C.y, @C.z);', [hn], (5.2, variant['ypos'] - 6 * 2.2), variant['colour'])
+    return fl
+def wire_switch(variant_index, nodes):
+    """connect the finished branch to inputs of the six SW_n nodes (input index = variant index)."""
+    n = L.net()
+    for i, m in enumerate(L.MAPS):
+        sw = n.node('SW_%d_%s' % (i + 1, m.upper())); sw.setInput(variant_index, nodes[m])

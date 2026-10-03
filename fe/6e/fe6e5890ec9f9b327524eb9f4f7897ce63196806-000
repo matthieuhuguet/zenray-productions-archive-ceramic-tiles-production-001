@@ -1,0 +1,98 @@
+# 1 October 2026 : the six camera shots of the commercial, as DATA (one source for the Houdini keyframes, the coverage check, the previews and the final renders). Square picture: aperture 24 x 24 mm, final 4096 x 4096 (Matthieu, 1 October 2026), 24 frames per second,
+# every shot 5 s = 120 frames, shot k = frames 1 + 120 k to 120 (k + 1). The camera looks along -Z, rotations rx (pitch, -90 = straight down) then ry (yaw), order xyz (verified on the key light).
+# Scene layout: three 4 x 4 m planes in a row along X (green at x = -4.2, multicolour at 0, teal at +4.2, a 0.2 m dark gap between them), then rows of spheres far away along -Z (z = -14, -24 and -34 for shots 4, 5 and 6), so that a shot never sees the objects of another.
+#   shot 1 TRIPTYCH : perfectly vertical (top down) slide over the three planes, always one on the axis: holds on each plane, smooth slides between
+#   shot 2 RISE     : crane up from an oblique view to straight overhead on the multicolour plane
+#   shot 3 ORBIT    : orbit of 62 degrees around the teal plane, 60 mm (a square picture needs a longer lens than 16:9 to stay on the 4 m plane), rack focus
+#   shot 4 SPHERES, ROLL  : the same vertical slide over three CUBE spheres (green, multicolour, teal) that roll about the horizontal axis
+#   shot 5 SPHERES, TURN  : the same slide, the spheres turn like a record under the camera (about the vertical axis)
+#   shot 6 SPHERE CLUSTER : the same slide over a big sphere and a small satellite at each stop, different colours, tilted spin axes
+# FR : les six plans de la pub, en donnees ; image carree.
+import math
+FPS, SHOT_FRAMES, NSHOTS = 24, 120, 6
+HAP, VAP = 24.0, 24.0
+PLANE_X = {'green': -4.2, 'multi': 0.0, 'teal': 4.2}
+SLIDE_STOPS = (-4.2, 0.0, 4.2)
+TOP_H_PLANE = 5.40          # eye height of the top-down slide over the planes: visible width 24 * 5.4 / 35 = 3.70 m on the plane (a 4 m plane is never left)
+SPH_R, TOP_H_SPHERE = 1.10, 4.90
+SPHERE_ROW_Z = {3: -14.0, 4: -24.0, 5: -34.0}      # one row per shot, 10 m apart: two rows at the same place z-fight (found 1 October 2026: stripes alternating the colours of two overlapping spheres)
+SHOTS = {
+    0: {'name': 'Triptych', 'kind': 'slide', 'focal': 35.0, 'fstop': 0.0, 'h': TOP_H_PLANE, 'z': 0.0, 'holds': ((0.00, 0.12), (0.40, 0.60), (0.88, 1.00)), 'keys': (0.0, 0.26, 0.5, 0.74, 1.0)},
+    1: {'name': 'Rise', 'kind': 'rise', 'focal': 28.0, 'fstop': 0.0, 'plane': 'multi', 'eye0': (0.0, 1.35, 2.05), 'eye1': (0.0, 3.60, 0.0), 'pitch0': -48.0, 'pitch1': -90.0, 'yaw0': 0.0, 'yaw1': -10.0, 'keys': (0.0, 0.25, 0.5, 0.75, 1.0)},
+    2: {'name': 'Orbit', 'kind': 'orbit', 'focal': 60.0, 'fstop': 2.8, 'plane': 'teal', 'radius': 1.80, 'az0': -38.0, 'az1': 24.0, 'h0': 2.00, 'h1': 1.60, 'tgt': (0.0, 0.0, -0.10), 'focus0': 2.3, 'focus1': 3.1, 'keys': (0.0, 0.25, 0.5, 0.75, 1.0)},
+    3: {'name': 'Spheres roll', 'kind': 'slide', 'focal': 35.0, 'fstop': 0.0, 'h': TOP_H_SPHERE, 'z': SPHERE_ROW_Z[3], 'holds': ((0.00, 0.12), (0.40, 0.60), (0.88, 1.00)), 'keys': (0.0, 0.2, 0.5, 0.8, 1.0)},
+    4: {'name': 'Spheres turn', 'kind': 'slide', 'focal': 35.0, 'fstop': 0.0, 'h': TOP_H_SPHERE, 'z': SPHERE_ROW_Z[4], 'holds': ((0.00, 0.12), (0.40, 0.60), (0.88, 1.00)), 'keys': (0.0, 0.2, 0.5, 0.8, 1.0)},
+    5: {'name': 'Sphere cluster', 'kind': 'slide', 'focal': 35.0, 'fstop': 0.0, 'h': TOP_H_SPHERE, 'z': SPHERE_ROW_Z[5], 'holds': ((0.00, 0.12), (0.40, 0.60), (0.88, 1.00)), 'keys': (0.0, 0.2, 0.5, 0.8, 1.0)},
+}
+COLOURS = ('green', 'multi', 'teal')
+# spheres: (id, shot, colour, x, y, z, radius, rotation: (kind, total degrees about its axis, tilt of the axis in degrees))
+def _row(shot, z, rot):
+    return [('s%d_%d' % (shot, i), shot, COLOURS[i], SLIDE_STOPS[i], SPH_R, z, SPH_R, rot) for i in range(3)]
+SPHERES = _row(3, SPHERE_ROW_Z[3], ('roll', 180.0, 0.0)) + _row(4, SPHERE_ROW_Z[4], ('turn', 120.0, 0.0))
+_big = _row(5, SPHERE_ROW_Z[5], ('spin', 150.0, 23.0))
+_sat = [('s5_sat%d' % i, 5, COLOURS[(i + 2) % 3], SLIDE_STOPS[i] + (1.25, -1.25, 1.25)[i], 0.45, SPHERE_ROW_Z[5] + (1.10, 1.10, -1.10)[i], 0.45, ('spin', -330.0, -35.0)) for i in range(3)]
+SPHERES += _big + _sat
+def ease(t, kind='smoother'):
+    t = min(max(t, 0.0), 1.0)
+    return t * t * t * (t * (6 * t - 15) + 10) if kind == 'smoother' else t * t * (3 - 2 * t)
+def lerp(a, b, u): return a + (b - a) * u
+def lerp3(a, b, u): return tuple(lerp(x, y, u) for x, y in zip(a, b))
+def aim(eye, tgt):
+    d = (tgt[0] - eye[0], tgt[1] - eye[1], tgt[2] - eye[2]); h = math.hypot(d[0], d[2])
+    return math.degrees(math.atan2(d[1], h)), math.degrees(math.atan2(-d[0], -d[2]))
+def slide_x(t, holds):
+    """x of the vertical slide: holds on the three stops, smootherstep between them; the camera is ON a stop (one object exactly on the axis) during every hold"""
+    (a0, a1), (b0, b1), (c0, c1) = holds
+    if t <= a1: return SLIDE_STOPS[0]
+    if t < b0: return lerp(SLIDE_STOPS[0], SLIDE_STOPS[1], ease((t - a1) / (b0 - a1)))
+    if t <= b1: return SLIDE_STOPS[1]
+    if t < c0: return lerp(SLIDE_STOPS[1], SLIDE_STOPS[2], ease((t - b1) / (c0 - b1)))
+    return SLIDE_STOPS[2]
+def pose(k, t):
+    """camera at progress t (0..1) of shot k -> dict with eye, rx, ry, focal, fstop, focus"""
+    S = SHOTS[k]; kind = S['kind']
+    if kind == 'slide':
+        x = slide_x(t, S['holds']); eye = (x, S['h'], S['z']); rx, ry = -90.0, 0.0; focus = S['h'] if k == 0 else S['h'] - SPH_R
+    elif kind == 'rise':
+        u = ease(t); c = PLANE_X[S['plane']]; e = lerp3(S['eye0'], S['eye1'], u); eye = (c + e[0], e[1], e[2]); rx = lerp(S['pitch0'], S['pitch1'], u); ry = lerp(S['yaw0'], S['yaw1'], u); focus = eye[1] / max(math.sin(math.radians(-rx)), 0.2)
+    else:
+        u = ease(t); c = PLANE_X[S['plane']]; a = math.radians(lerp(S['az0'], S['az1'], u)); h = lerp(S['h0'], S['h1'], u)
+        eye = (c + S['radius'] * math.sin(a), h, S['radius'] * math.cos(a)); tgt = (c + S['tgt'][0], S['tgt'][1], S['tgt'][2]); rx, ry = aim(eye, tgt); focus = lerp(S['focus0'], S['focus1'], u)
+    return {'eye': eye, 'rx': rx, 'ry': ry, 'focal': S['focal'], 'fstop': S['fstop'], 'focus': focus}
+def sphere_rotation(sph, t):
+    """(rx, ry, rz) in degrees of the LOP transform of a sphere at progress t of ITS shot (order yxz). The sphere is a CUBE sphere: the camera, looking straight down, sees the centre of the +Y face, where the tiles are square.
+    roll = about Z by -total (the top face rolls towards +X, the direction of the slide; the pattern crosses the cube edges, which fall on tile joints); turn = about the vertical Y (the picture turns like a record); spin = about Y then tilted about X (tilted axis)."""
+    kind, total, tilt = sph[7]; a = total * ease(t, 'smooth')
+    if kind == 'roll': return (0.0, 0.0, -a)
+    if kind == 'turn': return (0.0, a, 0.0)
+    return (tilt, a, 0.0)
+def basis(rx, ry):
+    a, b = math.radians(rx), math.radians(ry)
+    fwd = (-math.cos(a) * math.sin(b), math.sin(a), -math.cos(a) * math.cos(b))
+    right = (math.cos(b), 0.0, -math.sin(b)); up = (math.sin(a) * math.sin(b), math.cos(a), math.sin(a) * math.cos(b))
+    return fwd, right, up
+def plane_hits(p):
+    fwd, right, up = basis(p['rx'], p['ry']); th = HAP / (2 * p['focal']); tv = VAP / (2 * p['focal']); out = []
+    for uu in (-1, 0, 1):
+        for vv in (-1, 0, 1):
+            d = tuple(fwd[i] + uu * th * right[i] + vv * tv * up[i] for i in range(3))
+            if d[1] >= -1e-6: out.append(None); continue
+            s = -p['eye'][1] / d[1]; out.append((p['eye'][0] + s * d[0], p['eye'][2] + s * d[2]))
+    return out
+def coverage(limit=1.97):
+    """worst margin to the edge of the plane the shot looks at, over the 120 frames (> 0: the picture never leaves it). Plane shots only; for the triptych the margin is measured in Z (the gaps between the planes are meant to be seen)"""
+    res = {}
+    for k, S in SHOTS.items():
+        if k > 2: continue
+        worst = 9.0; miss = 0
+        for f in range(SHOT_FRAMES):
+            p = pose(k, f / (SHOT_FRAMES - 1)); c = PLANE_X[S['plane']] if 'plane' in S else None
+            for h in plane_hits(p):
+                if h is None: miss += 1; continue
+                worst = min(worst, limit - (abs(h[1]) if c is None else max(abs(h[0] - c), abs(h[1]))))
+        res[k] = {'worst_margin_m': round(worst, 3), 'rays_missing_the_plane': miss}
+    return res
+if __name__ == '__main__':
+    for k, v in coverage().items(): print(k + 1, SHOTS[k]['name'], v)
+    for k in SHOTS:
+        for t in SHOTS[k]['keys']: p = pose(k, t); print(k + 1, 't=%.2f' % t, 'eye', tuple(round(x, 2) for x in p['eye']), 'rx %.1f ry %.1f' % (p['rx'], p['ry']))

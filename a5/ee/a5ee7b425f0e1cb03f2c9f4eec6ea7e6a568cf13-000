@@ -1,0 +1,56 @@
+# 30 September 2026 : measure a reference map of sheet 08 as a function of MY distance fields (near, side, strength, edge).
+# For each map and each channel it bins the mean value against the distance to the nearest arc, separately inside the disc and in
+# the star outside, and for the low fourth arc; then against the distance to the tile edge. The result is a set of curves the
+# Copernicus graph reproduces with remap ramps. Usage: python3 MeasureMapProfiles.py
+# FR : mesure chaque carte de reference selon mes champs de distance ; en sortie, des courbes reprises par les rampes du graphe.
+import json, numpy as np
+from PIL import Image
+from scipy import ndimage as ndi
+
+D = '/Users/zenray/Create/Build/Productions/ZenRayHoudini/CeramicTiles'
+SC = 408.25 / 480.0
+OFF = json.load(open(D + '/ref-maps/window_offsets.json'))
+FIELD = {k: Image.open(f'{D}/render/fields/{k}.png').convert('L') for k in ('near', 'side', 'strength', 'edge')}
+SCALE = {'near': 0.5, 'side': 1.0, 'strength': 1.0, 'edge': 0.5}
+BINS_NEAR = [0.0, 0.004, 0.008, 0.012, 0.016, 0.02, 0.03, 0.04, 0.05, 0.06, 0.08, 0.10, 0.12, 0.14, 0.16, 0.20, 0.24, 0.28, 0.32, 0.36, 0.40, 0.44, 0.50]
+BINS_EDGE = [0.0, 0.002, 0.004, 0.006, 0.008, 0.012, 0.016, 0.024, 0.04, 0.5]
+
+
+def window(name, x0, W, H):
+    ww = int(round(W / SC))
+    return {k: np.asarray(FIELD[k].crop((x0, 0, x0 + ww, 1920)).resize((W, H), Image.LANCZOS)).astype(np.float32) / 255 * SCALE[k] for k in FIELD}
+
+
+def profile(values, mask, coord, bins):
+    out = []
+    for lo, hi in zip(bins[:-1], bins[1:]):
+        s = mask & (coord >= lo) & (coord < hi)
+        out.append(None if s.sum() < 25 else [float(values[s][:, c].mean()) for c in range(values.shape[1])])
+    return out
+
+
+def measure(map_name):
+    img = Image.open(f'{D}/ref-maps/ref_{map_name}.png')
+    rgb = img.convert('RGB'); W, H = rgb.size
+    arr = np.asarray(rgb).astype(np.float32) / 255
+    if map_name in ('roughness', 'height', 'ao'): arr = arr[..., :1]          # single channel maps
+    F = window(map_name, OFF[map_name][1], W, H)
+    edge, near, side, strength = F['edge'], F['near'], F['side'], F['strength']
+    vals = arr.reshape(-1, arr.shape[2])
+    e = edge.ravel(); n = near.ravel(); sd = side.ravel() > 0.5; st = strength.ravel() > 0.5
+    away_edge = e > 0.03
+    res = {'inside_strong': profile(vals, away_edge & sd & st, n, BINS_NEAR), 'outside_strong': profile(vals, away_edge & ~sd & st, n, BINS_NEAR),
+           'flat_weak': profile(vals, away_edge & ~st, n, BINS_NEAR), 'joint': profile(vals, n > 0.10, e, BINS_EDGE)}
+    hp = arr[..., 0] - ndi.gaussian_filter(arr[..., 0], 12)
+    res['grain_std'] = float(hp[(edge > 0.03) & (near > 0.06)].std())
+    lp = ndi.gaussian_filter(arr, (25, 25, 0)) if arr.ndim == 3 else arr
+    res['broad_std'] = [float(lp[..., c][(edge > 0.04) & (near > 0.08)].std()) for c in range(arr.shape[2])]
+    res['mean'] = [float(arr[..., c].mean()) for c in range(arr.shape[2])]
+    return res
+
+
+if __name__ == '__main__':
+    out = {m: measure(m) for m in ('normal', 'basecolor', 'roughness', 'ao')}
+    json.dump(out, open(D + '/ref-maps/map_profiles.json', 'w'))
+    for m, r in out.items():
+        print(m, 'mean', [round(x, 3) for x in r['mean']], 'grain std', round(r['grain_std'], 4), 'broad std', [round(x, 3) for x in r['broad_std']])

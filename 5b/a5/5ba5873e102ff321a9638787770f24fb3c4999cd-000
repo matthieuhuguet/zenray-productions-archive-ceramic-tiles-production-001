@@ -1,0 +1,19 @@
+# 1 October 2026 : runs INSIDE Houdini. For each colour set: locks colour_set, exports its basecolor, renders ONE still of the plane (top camera, 1024 x 1024, 32 samples) to render/frames/_colourset_<name>.png, restores the expression.
+# Used to calibrate the gains (CalibrateVariants.py) and to look at the three looks. FR : un rendu fixe du plan pour chaque jeu de couleurs.
+import hou, os, time, runpy
+B = '/Users/zenray/Create/Build/Productions/ZenRayHoudini/CeramicTiles/'
+net = hou.node('/obj/CeramicGreen_Height'); st = hou.node('/stage')
+runpy.run_path(B + 'Scripts/PatchColourVariant.py'); runpy.run_path(B + 'Scripts/PatchMaterialSwitch.py')
+runpy.run_path(B + 'Scripts/ExportColourSets.py')
+p = net.parm('colour_set'); expr = p.expression() if p.keyframes() else None
+which = globals().get('WHICH', 'multi')
+cs = {'green': 0, 'multi': 1, 'teal': 2}[which]
+p.deleteAllKeyframes(); p.set(cs)
+for f in [f for f in os.listdir(B + 'render') if f.endswith('.rat')]: os.remove(B + 'render/' + f)
+m = hou.node('/mat/CeramicGreen_Material'); m.parm('basecolor_useTexture').set(0); m.parm('basecolor_useTexture').set(1)
+kp = st.node('cg_karma'); kp.parm('camera').set('/cameras/cg_camera'); kp.parm('samplesperpixel').set(32); kp.parm('varianceaa_maxsamples').set(32)
+rop = st.node('cg_render'); rop.parm('outputimage').set(B + f'render/frames/_colourset_{which}.png'); rop.parm('override_res').set('specific'); rop.parm('res_user1').set(1024); rop.parm('res_user2').set(1024)
+hou.hscript('render -V 1 ' + rop.path())
+p.deleteAllKeyframes()
+if expr: p.setExpression(expr, hou.exprLanguage.Hscript)
+result = 'rendered ' + which

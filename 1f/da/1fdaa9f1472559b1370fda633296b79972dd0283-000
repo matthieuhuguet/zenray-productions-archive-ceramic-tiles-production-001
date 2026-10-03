@@ -1,0 +1,82 @@
+# 2 October 2026 : VARIANT 3, reference 02b (julien-delannoy-11 right): 6 x 6 terracotta tiles. Every tile is a flat frame carrying one rounded-square BOWL (superellipse, glazed, rim a thin light line); the wall of the bowl is steep and dark, the floor is a shallow SADDLE tilted towards a random corner, and on the steep side
+# the frame rises into a small ridge that overhangs the neighbour. The reference lighting hides most of the per tile differences (measured side by side in Scripts/Fit02b.py, ref-maps/v02b.json), so the tile variation is a seeded hash, not a copy. FR : variante 3, tuiles terre cuite à cuvette.
+import hou, json, sys
+sys.path.insert(0, '/Users/zenray/Create/Build/Productions/ZenRayHoudini/CeramicTiles/Scripts')
+import VariantLib as L, VariantEngine as E
+D = json.load(open(L.B + 'ref-maps/v02b.json'))
+CP = '/obj/CeramicGreen_Height/'
+def T(code, **kw):
+    kw.setdefault('c', CP)
+    for k, v in kw.items(): code = code.replace('<<%s>>' % k, str(v))
+    return code
+SPECS = [
+    {'name': 'v3_half', 'label': 'Bowl half size', 'default': 0.46, 'range': (0.25, 0.49), 'help': 'Half width of the bowl in tile units. The rim sits about 7 percent inside the tile edge on the reference.'},
+    {'name': 'v3_exp', 'label': 'Bowl squareness', 'default': 3.2, 'range': (2.0, 8.0), 'help': 'Superellipse exponent: 2 circle, 8 almost square. The bowls of the reference are rounded squares around 3 to 4.'},
+    {'name': 'v3_wall', 'label': 'Wall width', 'default': 0.09, 'range': (0.02, 0.3), 'help': 'Distance from the rim over which the wall falls to the floor (tile units).'},
+    {'name': 'v3_depth', 'label': 'Bowl depth', 'default': 0.34, 'range': (0.0, 0.6)},
+    {'name': 'v3_tilt', 'label': 'Floor tilt and ridge', 'default': 0.5, 'range': (0.0, 2.0), 'help': 'Strength of the saddle shaped floor and of the ridge on the steep side of each tile.'},
+    {'name': 'v3_jitter', 'label': 'Tile to tile variation', 'default': 0.8, 'range': (0.0, 2.0), 'help': 'Random offset and size of every bowl, colour variation of every tile.'},
+    {'name': 'v3_glaze', 'label': 'Dark glaze pooling', 'default': 0.6, 'range': (0.0, 1.0), 'help': 'How dark the glaze gets on the wall and just inside the rim.'},
+    {'name': 'v3_joint_width', 'label': 'Joint width', 'default': 0.004, 'range': (0.001, 0.03)},
+]
+LIB = '''
+vector lin3(vector c) { return set(srgb2lin(c.x), srgb2lin(c.y), srgb2lin(c.z)); }
+'''
+PRELUDE = T('''
+int NT = 6;
+float gx = (@P.x * 0.5 + 0.5) * float(NT); float gy = (0.5 - @P.y * 0.5) * float(NT);
+int tc = clamp(int(floor(gx)), 0, NT - 1); int tr = clamp(int(floor(gy)), 0, NT - 1);
+float u = gx - float(tc) - 0.5; float v = gy - float(tr) - 0.5;                       // tile centred coordinates, -0.5 .. 0.5, v measured down
+int tid = tr * NT + tc;
+float jit = chf("<<c>>v3_jitter");
+float ta = hsh(tid, 1.0) * 1.2 - 0.4; float tb = hsh(tid, 2.0) * 1.2 - 0.4;            // tilt direction, biased towards the right and the bottom like the reference
+float cx = jit * 0.03 * (hsh(tid, 4.0) * 2.0 - 1.0) - 0.04 * ta; float cy = jit * 0.03 * (hsh(tid, 5.0) * 2.0 - 1.0) - 0.04 * tb;
+float hx = chf("<<c>>v3_half") * (1.0 + jit * 0.08 * (hsh(tid, 6.0) * 2.0 - 1.0)); float hy = chf("<<c>>v3_half") * (1.0 + jit * 0.08 * (hsh(tid, 7.0) * 2.0 - 1.0));
+float sqn = chf("<<c>>v3_exp");
+float rr = pow(pow(abs(u - cx) / hx, sqn) + pow(abs(v - cy) / hy, sqn), 1.0 / sqn);   // 1 on the bowl rim
+float rd = (rr - 1.0) * min(hx, hy);                                                  // signed distance to the rim in tile units, negative inside the bowl
+float tl = ta * u + tb * v;                                                           // tilt coordinate: positive towards the steep side
+float ed = 0.5 - max(abs(u), abs(v));                                                 // distance to the tile edge
+float opn = sm(-0.1, 0.5, tl * 1.5);                                                  // 0 = sharp rim side, 1 = open side where the wall melts into the frame (the swoosh of the reference)
+''')
+H = [
+ ('frame', 'S.x = 0.60;'),
+ ('ridge', T('float side = sm(0.0, 0.4, tl * 2.0);\nS.x += 0.05 * chf("<<c>>v3_tilt") * side * exp(-(rd * rd) / 0.0016) * (rd > -0.01 ? 1.0 : 0.0);')),
+ ('bowl_wall', T('float side = sm(0.0, 0.4, tl * 2.0); float ww = chf("<<c>>v3_wall") * (0.6 + 1.4 * opn);\nfloat t = clamp(-rd / ww, 0.0, 1.0); float prof = 1.0 - pow(1.0 - t, 2.0);\nS.x -= chf("<<c>>v3_depth") * prof * (1.0 - 0.35 * opn);')),
+ ('saddle_floor', T('float w = 1.0 - sm(-0.01, 0.01, rd);\nS.x += w * chf("<<c>>v3_tilt") * (0.07 * tl + 0.05 * (u * u - v * v) * (hsh(tid, 3.0) * 2.0 - 1.0));')),
+ ('joints', T('float jw = chf("<<c>>v3_joint_width");\nS.x -= 0.05 * (1.0 - sm(0.0, jw, ed));')),
+ ('micro', 'S.x += 0.0025 * (noise(set(@P.x * 90.0, @P.y * 90.0, 1.0)) - 0.5);'),
+]
+B = [
+ ('frame_and_floor', T('''float w = 1.0 - sm(-0.01, 0.01, rd);
+vector frame_c = lin3(set(0.44, 0.26, 0.16)); vector floor_c = lin3(set(0.52, 0.27, 0.14));
+float tone = 1.0 + chf("<<c>>v3_jitter") * 0.18 * (hsh(tid, 8.0) * 2.0 - 1.0);
+float cl = 0.85 + 0.30 * fbm2(@P.x * 6.0, @P.y * 6.0, float(tid) * 1.3);
+S = withrgb(lerp(frame_c, floor_c, w) * tone * cl);''')),
+ ('wall_pooling', T('float inside = 1.0 - sm(-0.01, 0.01, rd); float wallm = inside * (1.0 - sm(0.0, chf("<<c>>v3_wall") * 1.6, -rd));\nS = withrgb(lerp(rgb(S), lin3(set(0.13, 0.06, 0.03)), wallm * chf("<<c>>v3_glaze")));')),
+ ('rim_light', T('float rim = 1.0 - sm(0.0, 0.010, abs(rd));\nS = withrgb(lerp(rgb(S), lin3(set(0.85, 0.58, 0.36)), rim * 0.7 * (1.0 - 0.8 * opn)));')),
+ ('hatch', T('float band = (1.0 - sm(-0.01, 0.01, rd)) * (1.0 - sm(0.0, 0.07, -rd)); float hat = sm(0.42, 0.62, noise(set(@P.x * 520.0, @P.y * 90.0, 4.0)));\nS = withrgb(lerp(rgb(S), lin3(set(0.16, 0.08, 0.05)), band * hat * 0.55 * chf("<<c>>v3_glaze")));')),
+ ('joints', T('float jw = chf("<<c>>v3_joint_width"); float dark = 1.0 - sm(0.0, jw * 0.6, ed);\nS = withrgb(lerp(rgb(S), lin3(set(0.05, 0.03, 0.02)), dark));')),
+ ('pores', 'float pr = sm(0.84, 0.88, noise(set(@P.x * 650.0, @P.y * 650.0, 5.0)));\nS = withrgb(lerp(rgb(S), lin3(set(0.80, 0.70, 0.62)), pr * 0.55));'),
+]
+R = [
+ ('frame', 'S.x = 0.55;'),
+ ('glaze', T('float w = 1.0 - sm(-0.01, 0.01, rd);\nS.x = lerp(S.x, 0.28, w);')),
+ ('rim', 'float rim = 1.0 - sm(0.0, 0.010, abs(rd));\nS.x = lerp(S.x, 0.40, rim);'),
+ ('grain', 'S.x += 0.06 * (noise(set(@P.x * 300.0, @P.y * 300.0, 9.0)) - 0.5);'),
+]
+F = [
+ ('frame', 'S = set(0.35, 0.35, 0.35, 1.0);'),
+ ('glaze', T('float w = 1.0 - sm(-0.01, 0.01, rd);\nfloat k = lerp(0.35, 0.90, w); S = set(k, k, k, 1.0);')),
+]
+A = [
+ ('base', 'S.x = 1.0;'),
+ ('crevice', T('float jw = chf("<<c>>v3_joint_width"); float jt = 1.0 - sm(0.0, jw * 3.0, ed); float side = sm(0.0, 0.4, tl * 2.0);\nfloat w = 1.0 - sm(-0.01, 0.01, rd); float footing = w * (1.0 - sm(0.0, 0.05, -rd));\nS.x = 1.0 - 0.35 * footing * (0.5 + 0.5 * side) - 0.3 * jt;')),
+]
+VARIANT = dict(prefix='V3', lib=LIB, prelude=PRELUDE, base_input='A1_layout__tile_grid_4x4', ypos=-90.0, colour=(0.8, 0.55, 0.35), stages={'height': H, 'basecolor': B, 'roughness': R, 'reflect': F, 'ao': A}, normal_scale=0.10)
+def build(fuse):
+    L.add_folder('HDA 02b Terracotta', SPECS)
+    o = E.build(VARIANT, fuse)
+    o['normal'] = E.normals(VARIANT, o['height'], VARIANT['normal_scale'])
+    E.wire_switch(3, o)
+    return o

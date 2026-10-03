@@ -1,0 +1,39 @@
+# 1 October 2026 : HEADLESS renderer of the commercial (hython, a saved hip). Usage: hython RenderAdFrames.py <hip> <outdir> <width> <height> <spp> <frames: a,b,c or a-b/step> [--set name=value ...] [--cpu] [--denoise oidn] [--keep-rat]
+# It never touches the live Houdini session: the hip is a saved copy. Frame names: <outdir>/ad_<frame 4 digits>.png. FR : rendu hors session des images de la pub.
+import hou, sys, os, time, runpy, glob
+hip, outdir, W, Hh, spp, frames = sys.argv[1], sys.argv[2], int(sys.argv[3]), int(sys.argv[4]), int(sys.argv[5]), sys.argv[6]
+B = '/Users/zenray/Create/Build/Productions/ZenRayHoudini/CeramicTiles/'
+outdir = os.path.abspath(outdir)      # husk resolves a relative path against the folder of the hip file, not against the current directory
+os.makedirs(outdir, exist_ok=True)
+if '-' in frames:
+    rng, _, step = frames.partition('/'); a, b = rng.split('-'); fl = list(range(int(a), int(b) + 1, int(step or 1)))
+else: fl = [int(x) for x in frames.split(',')]
+hou.hipFile.load(os.path.abspath(hip), suppress_save_prompt=True, ignore_load_warnings=True)
+# 1 October 2026 : optional overrides after the frame list: --set name=value (any parameter of /obj/CeramicGreen_Height, e.g. light_rig=1 studio_key=7.5; its expression is removed) and --cpu (pure Karma CPU delegate instead of XPU)
+OVR = {a.split('=')[0]: float(a.split('=')[1]) for a in sys.argv[7:] if '=' in a and not a.startswith('--')}
+for i, a in enumerate(sys.argv[7:]):
+    if a == '--set' and '=' in sys.argv[7 + i + 1]: OVR[sys.argv[7 + i + 1].split('=')[0]] = float(sys.argv[7 + i + 1].split('=')[1])
+_net = hou.node('/obj/CeramicGreen_Height')
+for _k, _v in OVR.items():
+    _p = _net.parm(_k); _p.deleteAllKeyframes(); _p.set(_v)
+# 1 October 2026 : the scene (planes, spheres, materials, cameras) is built in the live session by PatchAdScene2.py and PatchAdCameras.py and saved in the hip; nothing is patched here
+st = hou.node('/stage'); kp = st.node('cg_karma'); rop = st.node('cg_render')
+kp.parm('samplesperpixel').set(spp); kp.parm('varianceaa_maxsamples').set(spp)
+kp.parm('pathtracedsamples').set(spp)      # 1 October 2026 (EngineTest.py): XPU reads pathtracedsamples and IGNORES samplesperpixel (16, 64 and 256 gave the same image in the same 22.5 s); the pure CPU delegate reads samplesperpixel and ignores pathtracedsamples. Until this line every XPU preview was rendered at the 48 samples stored in the hip
+if '--cpu' in sys.argv[7:]: rop.parm('renderer').set('BRAY_HdKarma')
+if '--denoise' in sys.argv[7:]: kp.parm('denoiser').set(sys.argv[sys.argv.index('--denoise') + 1])      # 1 October 2026 : off, optix or oidn (Intel Open Image Denoise, works on this Mac)
+rop.parm('override_res').set('specific'); rop.parm('res_user1').set(W); rop.parm('res_user2').set(Hh)
+if '--keep-rat' not in sys.argv[7:]:      # 1 October 2026 : parallel workers of RenderFinal.py keep the .rat texture caches (deleting them under a neighbour that reads them would break its render)
+    for _x in [x for x in os.listdir(B + 'render') if x.endswith('.rat')]: os.remove(B + 'render/' + _x)
+    for _x in glob.glob(B + 'render/maps_*/*.rat'): os.remove(_x)      # 1 October 2026 : the 4096 maps of the final hip live in render/maps_4096/
+t0 = time.time()
+for f in fl:
+    out = os.path.join(outdir, 'ad_%04d.png' % f)
+    if os.path.exists(out): continue
+    hou.setFrame(f)
+    rop.parm('outputimage').set(out)
+    t = time.time(); _o = hou.hscript('render -V 1 -f %d %d %s' % (f, f, rop.path()))
+    if not os.path.exists(out): print('HSCRIPT OUT', _o[0][-600:], 'ERR', _o[1][-600:], flush=True)
+    net = hou.node('/obj/CeramicGreen_Height')
+    print('frame', f, 'shot', net.parm('shot').evalAsInt(), 'colour', net.parm('colour_set').evalAsInt(), 'camera', kp.parm('camera').eval(), 'took %.1f s' % (time.time() - t), 'exists', os.path.exists(out), flush=True)
+print('done', len(fl), 'frames in %.0f s' % (time.time() - t0), flush=True)

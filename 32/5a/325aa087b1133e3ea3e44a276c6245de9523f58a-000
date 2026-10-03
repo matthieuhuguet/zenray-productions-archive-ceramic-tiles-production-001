@@ -1,0 +1,14 @@
+# 1 October 2026 : patch (idempotent). The base colour texture of the material follows the HDA parameter colour_set: green = render/CeramicGreen_V6_basecolor.png, multi = ..._multi.png, teal = ..._teal.png (the three files are written by ExportColourSets.py).
+# Memory: the COP graph is computed only when a map is exported; during a render Karma loads ONE basecolor map (the other two stay on disk). FR : le matériau lit la carte de couleur du jeu actif.
+import hou
+B = '/Users/zenray/Create/Build/Productions/ZenRayHoudini/CeramicTiles/'
+m = hou.node('/mat/CeramicGreen_Material')
+expr = "'%srender/CeramicGreen_V6_basecolor%%s.png' %% ['', '_multi', '_teal'][hou.node('/obj/CeramicGreen_Height').parm('colour_set').evalAsInt()]" % B
+m.parm('basecolor_texture').setExpression(expr, hou.exprLanguage.Python)
+m.parm('basecolor_useTexture').set(0); m.parm('basecolor_useTexture').set(1)
+
+# 1 October 2026 : the colour multiplier of the shader is the dark green (0.086, 0.099, 0.056) for the green set; for the multicolour and teal sets it is a neutral 0.297 (3 x 0.099), so that the texture does not have to clip to reach the lighter targets of 01b and 02a.
+# ZN_albedo__colour_variant_green_multi_teal divides the gains by the same ratio. FR : multiplicateur neutre pour les jeux de couleurs 1 et 2.
+T = 'ch("/obj/CeramicGreen_Height/glaze_tint")'; CS = '(ch("/obj/CeramicGreen_Height/colour_set") > 0)'
+for k, g in (('basecolorr', 0.086), ('basecolorg', 0.099), ('basecolorb', 0.056)):
+    m.parm(k).setExpression('(%.3f + (0.297 - %.3f) * %s) * %s' % (g, g, CS, T), hou.exprLanguage.Hscript)

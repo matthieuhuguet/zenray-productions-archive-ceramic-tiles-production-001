@@ -1,0 +1,21 @@
+# 1 October 2026 : storyboard of the commercial: 5 key frames per shot (0, 25, 50, 75 and 100 percent of the 5 s), one row per shot, with the name of the shot, the camera move, the lens and the colour set. Needs render/ad_preview/p960/ad_<frame>.png for the 15 key frames.
+# Matthieu (1 October 2026): a storyboard with the important key frames is enough to validate; no movie, no 4K before validation. FR : storyboard de la pub, 5 images cles par plan.
+import os
+from PIL import Image, ImageDraw, ImageFont
+B = '/Users/zenray/.claude/tmp/tmp-houdini-september-2026/tmp-materials-substance-copernicus-30-09-2026/'
+D = B + 'render/ad_preview/p960/'
+INFO = {0: ('SHOT 1  SLIDE', 'green (current)', 'Low truck to the right at 35 degrees, 50 mm, f/2.8, focus on the middle of the picture. The glazed dishes and the clay ridges slide past, the glints travel.'),
+        1: ('SHOT 2  RISE', 'multicolour (palette of 01b)', 'Crane up from a low oblique view to straight overhead, 28 mm, slight turn. The tile colours appear one after another, then the whole pattern.'),
+        2: ('SHOT 3  ORBIT', 'teal (colour of 02a)', 'Orbit of 62 degrees around the centre, 50 mm, f/2.8, focus pulled from the near tiles to the far ones. Glints sweep across the dishes.')}
+CW, CH, GAP, HEAD = 576, 324, 8, 52
+try: font = ImageFont.truetype('/System/Library/Fonts/Helvetica.ttc', 17); small = ImageFont.truetype('/System/Library/Fonts/Helvetica.ttc', 13)
+except Exception: font = small = None
+W = Image.new('RGB', (5 * CW + 6 * GAP, 3 * (CH + HEAD + 22) + GAP), (18, 18, 18)); dr = ImageDraw.Draw(W)
+for k in range(3):
+    f0 = 1 + 120 * k; fs = [f0, f0 + 30, f0 + 60, f0 + 90, f0 + 119]; y = GAP + k * (CH + HEAD + 22)
+    dr.text((GAP + 4, y + 2), '%s   |   colour: %s   |   frames %d to %d (5 s)' % (INFO[k][0], INFO[k][1], f0, f0 + 119), fill=(240, 240, 240), font=font)
+    dr.text((GAP + 4, y + 26), INFO[k][2], fill=(170, 170, 170), font=small)
+    for i, f in enumerate(fs):
+        im = Image.open(D + 'ad_%04d.png' % f).convert('RGB').resize((CW, CH), Image.LANCZOS); x = GAP + i * (CW + GAP)
+        W.paste(im, (x, y + HEAD)); dr.text((x + 6, y + HEAD + CH + 3), 'frame %d   t = %.2f s' % (f, (f - f0) / 24), fill=(200, 200, 200), font=small)
+out = B + 'measures/C040_tint68calib/ad_storyboard.png'; W.save(out); print(out, W.size)

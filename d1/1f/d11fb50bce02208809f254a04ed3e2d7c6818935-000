@@ -1,0 +1,110 @@
+# 1 October 2026 : patch (idempotent). The STUDIO LIGHTING of the commercial (Matthieu, 1 October 2026: "améliorer l'éclairage au maximum, un cyclorama + rim light + 3 points lights", "le rendu des sphères semble très mal éclairé, ce n'est pas un plan").
+# Why the spheres were badly lit: the reference rig (cg_dome -6 EV, cg_key, cg_spec, cg_fill) is made of DISTANT lights tuned to a flat plane seen from above and a black world: a glossy sphere reflects that black world on its whole limb, so it looks dark with two tiny glints.
+# What this patch builds: for each of the four sets (planes at the origin, sphere sets at z = AdShots.SPHERE_ROW_Z) a cyclorama (floor + cove + wall, one SOP, matte grey) and four soft rectangular lights (KEY upper left front, FILL right, two RIM strips behind),
+# plus ONE dim ambient dome so that nothing reflects pure black. The old rig stays untouched; a LOP Switch chooses between the two through the HDA parameter light_rig (0 = reference rig, the 01a look, bit-identical to before; 1 = studio).
+# The 8 parameters of the folder 'HDA Light' on /obj/CeramicGreen_Height: light_rig, studio_key, studio_fill, studio_rim (exposures in stops), studio_cyc (cyclorama tone in stops), studio_softness (size of the soft boxes), studio_azimuth (turns the whole rig), studio_gloss (specular multiplier of the soft boxes: how strong the reflections are against the diffuse light).
+# NOTE: Hscript sin() and cos() take DEGREES (rad() would be wrong). FR : l eclairage de studio de la pub : cyclorama, cle, remplissage, deux contre-jours, un dome ambiant ; un interrupteur garde l'ancien rig intact.
+import hou, runpy, math
+B = '/Users/zenray/Create/Build/Productions/ZenRayHoudini/CeramicTiles/'
+A = runpy.run_path(B + 'Scripts/AdShots.py')
+NET = '/obj/CeramicGreen_Height'; st = hou.node('/stage'); obj = hou.node('/obj'); mat = hou.node('/mat'); net = hou.node(NET)
+# ---- 0. every value of the rig in ONE place (HDA rule)
+P = dict(
+    sets={'planes': 0.0, 's3': A['SPHERE_ROW_Z'][3], 's4': A['SPHERE_ROW_Z'][4], 's5': A['SPHERE_ROW_Z'][5]},       # centre z of each set
+    cyc=dict(width=44.0, front=16.0, back=14.0, radius=6.0, height=12.0, arc_segments=20, floor_y=-0.01),
+    # role, azimuth (deg, 0 = in front of the set, the bottom of a top-down picture; 180 = behind it), elevation (deg), distance (m), width, height (m), base exposure offset (stops)
+    lights=[('key', -40.0, 50.0, 6.0, 2.6, 2.6, 0.0), ('fill', 62.0, 36.0, 6.5, 3.4, 3.4, 0.0), ('rim_l', 148.0, 24.0, 6.5, 0.7, 4.5, 0.0), ('rim_r', -148.0, 24.0, 6.5, 0.7, 4.5, 0.0)],
+    defaults=dict(light_rig=0, studio_key=10.5, studio_fill=8.0, studio_rim=10.5, studio_cyc=-4.0, studio_softness=1.6, studio_azimuth=0.0, studio_gloss=0.08),      # measured defaults of the studio rig after L005 (1 October 2026); light_rig stays 0 = the reference rig until Matthieu chooses
+    ambient_offset=-12.0,       # exposure of the ambient dome = studio_fill + this. -7 gave an ambient radiance of 1.0 (a bright world that veiled the glaze with a grey reflection, found 1 October 2026); -12 at fill 7 = 2^-5, close to the old dome (-6)
+    cyc_albedo=0.16,            # cyclorama albedo at studio_cyc = 0 stops
+    rim_gloss_boost=0.0,        # specular multiplier of the rim strips relative to studio_gloss. 4.0 made the thin strips mirror on every slope of the dishes as big white patches (found 1 October 2026, L004): the rims are DIFFUSE ONLY now
+    tint=(0.82, 1.0, 0.88),     # the colour of the reference key light: the colour sets (01b, 02a palettes) were calibrated under it, a neutral white would shift their hues
+)
+def CHP(n): return 'ch("%s/%s")' % (NET, n)
+# ---- 1. the folder HDA Light (8 parameters)
+ptg = net.parmTemplateGroup()
+_old = ptg.findFolder(['HDA Light']); _kept = {}
+if _old is not None:      # rebuilt on every run (ranges, labels), the values already tweaked are kept (only the names that still exist)
+    _kept = {pt.name(): net.parm(pt.name()).eval() for pt in _old.parmTemplates() if net.parm(pt.name()) is not None}
+    ptg.remove(_old); net.setParmTemplateGroup(ptg); ptg = net.parmTemplateGroup()
+if True:
+    f = hou.FolderParmTemplate('hda_light', 'HDA Light', folder_type=hou.folderType.Simple)
+    D = P['defaults']
+    f.addParmTemplate(hou.IntParmTemplate('light_rig', 'Light rig (0 = 01a reference, 1 = studio)', 1, default_value=(D['light_rig'],), min=0, max=1))
+    f.addParmTemplate(hou.FloatParmTemplate('studio_key', 'Key softbox exposure (stops)', 1, default_value=(D['studio_key'],), min=0.0, max=14.0))
+    f.addParmTemplate(hou.FloatParmTemplate('studio_fill', 'Fill softbox exposure (stops)', 1, default_value=(D['studio_fill'],), min=0.0, max=14.0))
+    f.addParmTemplate(hou.FloatParmTemplate('studio_rim', 'Rim strips exposure (stops)', 1, default_value=(D['studio_rim'],), min=0.0, max=14.0))
+    f.addParmTemplate(hou.FloatParmTemplate('studio_cyc', 'Cyclorama tone (stops, 0 = grey 0.16, -5 = near black)', 1, default_value=(D['studio_cyc'],), min=-6.0, max=3.0))
+    f.addParmTemplate(hou.FloatParmTemplate('studio_softness', 'Soft box size (x)', 1, default_value=(D['studio_softness'],), min=0.3, max=3.0))
+    f.addParmTemplate(hou.FloatParmTemplate('studio_azimuth', 'Rig azimuth (degrees)', 1, default_value=(D['studio_azimuth'],), min=-180.0, max=180.0))
+    f.addParmTemplate(hou.FloatParmTemplate('studio_gloss', 'Reflection strength of the soft boxes (x)', 1, default_value=(D['studio_gloss'],), min=0.0, max=1.5))
+    assert len(f.parmTemplates()) <= 8
+    ptg.append(f); net.setParmTemplateGroup(ptg)
+    for _k, _v in _kept.items():
+        if net.parm(_k) is not None and _k in P['defaults']: net.parm(_k).set(_v)
+# ---- 2. the cyclorama SOP (one geometry, instanced once per set by the LOP side)
+g = obj.node('AdStudio_Cyc') or obj.createNode('geo', 'AdStudio_Cyc')
+py = g.node('cyc') or g.createNode('python', 'cyc')
+C = P['cyc']
+py.parm('python').set('''import hou, math
+geo = hou.pwd().geometry(); geo.clear()
+W, FRONT, BACK, R, H, NA = %r, %r, %r, %r, %r, %d
+prof = [(0.0, FRONT), (0.0, -(BACK - R))]
+for i in range(1, NA + 1):
+    a = (math.pi / 2.0) * i / NA; prof.append((R - R * math.cos(a), -(BACK - R) - R * math.sin(a)))
+prof.append((H, -BACK))
+pts = []
+for (y, z) in prof:
+    pts.append((geo.createPoint(), geo.createPoint())); pts[-1][0].setPosition((-W / 2.0, y, z)); pts[-1][1].setPosition((W / 2.0, y, z))
+for i in range(len(prof) - 1):
+    poly = geo.createPolygon(); poly.addVertex(pts[i][0]); poly.addVertex(pts[i][1]); poly.addVertex(pts[i + 1][1]); poly.addVertex(pts[i + 1][0])
+''' % (C['width'], C['front'], C['back'], C['radius'], C['height'], C['arc_segments']))
+nm = g.node('normals') or g.createNode('normal', 'normals'); nm.setInput(0, py); nm.parm('type').set(0)
+out = g.node('OUT') or g.createNode('null', 'OUT'); out.setInput(0, nm); out.setDisplayFlag(True); out.setRenderFlag(True); g.layoutChildren()
+# ---- 3. the cyclorama material (a matte grey principled shader whose tone follows studio_cyc) and its entry in the material library
+m = mat.node('AdStudio_Cyc') or mat.createNode('principledshader::2.0', 'AdStudio_Cyc')
+for pn in ('basecolorr', 'basecolorg', 'basecolorb'): m.parm(pn).setExpression('%.3f * pow(2, %s)' % (P['cyc_albedo'], CHP('studio_cyc')), hou.exprLanguage.Hscript)
+m.parm('rough').set(0.55)
+lib = st.node('cg_materials'); n_mat = lib.parm('materials').eval()
+if not any(lib.parm('matpath%d' % i).eval() == 'AdStudio_Cyc' for i in range(1, n_mat + 1)):
+    lib.parm('materials').set(n_mat + 1); i = n_mat + 1
+    lib.parm('matflag%d' % i).set(0); lib.parm('matnode%d' % i).set('../../mat/AdStudio_Cyc'); lib.parm('matpath%d' % i).set('AdStudio_Cyc')
+# ---- 4. the LOP chain of the studio rig: scene -> merge with the cycloramas -> material -> lights -> out
+head = st.node('cg_ad_shot5')
+def new(t, name):
+    n = st.node(name) or st.createNode(t, name); return n
+mg = new('merge', 'ad_cyc_merge'); mg.setInput(0, head); k = 1
+for sname, cz in P['sets'].items():
+    imp = new('sopimport', 'ad_cyc_imp_' + sname); imp.parm('soppath').set('/obj/AdStudio_Cyc/OUT'); imp.parm('pathprefix').set('/ad_cyc_' + sname)
+    xf = new('xform', 'ad_cyc_xf_' + sname); xf.setInput(0, imp); xf.parm('primpattern').set('/ad_cyc_' + sname); xf.parm('ty').set(C['floor_y']); xf.parm('tz').set(cz)
+    mg.setInput(k, xf); k += 1
+asg = new('assignmaterial', 'ad_cyc_assign'); asg.setInput(0, mg); asg.parm('nummaterials').set(1)
+asg.parm('primpattern1').set('/ad_cyc_*/*'); asg.parm('matspecmethod1').set(0); asg.parm('matspecpath1').set('/materials/AdStudio_Cyc')
+prev = asg
+def setp(n, name, v, expr=False):
+    p = n.parm(name)
+    if expr: p.setExpression(v, hou.exprLanguage.Hscript)
+    else: p.set(v)
+for sname, cz in P['sets'].items():
+    for (role, az0, el, dist, w, h, ev0) in P['lights']:
+        n = new('light::2.0', 'ad_L_%s_%s' % (sname, role)); n.setInput(0, prev); prev = n
+        n.parm('primpath').set('/lights/ad_%s_%s' % (sname, role)); n.parm('lighttype').set('UsdLuxRectLight')
+        az = '(%.3f + %s)' % (az0, CHP('studio_azimuth'))
+        setp(n, 'tx', 'sin((%s)) * cos((%.3f)) * %.3f' % (az, el, dist), True)
+        setp(n, 'ty', 'sin((%.3f)) * %.3f' % (el, dist), True)
+        setp(n, 'tz', '%.3f + cos((%s)) * cos((%.3f)) * %.3f' % (cz, az, el, dist), True)
+        setp(n, 'rx', '-%.3f' % el); setp(n, 'ry', az, True)
+        setp(n, 'xn__inputswidth_zta', '%.3f * %s' % (w, CHP('studio_softness')), True); setp(n, 'xn__inputsheight_mva', '%.3f * %s' % (h, CHP('studio_softness')), True)
+        setp(n, 'xn__inputsnormalize_i0a', 1)
+        setp(n, 'xn__inputsexposure_vya', '%s + %.3f' % (CHP('studio_' + ('rim' if role.startswith('rim') else role)), ev0), True)
+        for c_, v_ in zip(('r', 'g', 'b'), P['tint']): setp(n, 'xn__inputscolor_zta' + c_, v_)
+        setp(n, 'xn__inputsspecular_vya', CHP('studio_gloss') + (' * %.2f' % P['rim_gloss_boost'] if role.startswith('rim') else ''), True)
+amb = new('domelight::3.0', 'ad_ambient'); amb.setInput(0, prev); prev = amb
+setp(amb, 'xn__inputsexposure_vya', '%s + %.3f' % (CHP('studio_fill'), P['ambient_offset']), True)
+studio_out = new('null', 'ad_studio_out'); studio_out.setInput(0, prev)
+# ---- 5. the switch: input 0 = the reference rig (the old chain ends at cg_fill), input 1 = the studio rig; Karma reads the switch
+sw = new('switch', 'ad_light_switch'); sw.setInput(0, st.node('cg_fill')); sw.setInput(1, studio_out)
+sw.parm('input').setExpression(CHP('light_rig'), hou.exprLanguage.Hscript)
+st.node('cg_karma').setInput(0, sw)
+st.layoutChildren()
+print('studio rig built:', len([c for c in st.children() if c.name().startswith('ad_L_')]), 'lights')

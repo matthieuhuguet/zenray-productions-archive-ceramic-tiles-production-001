@@ -1,0 +1,62 @@
+# 1 October 2026 : the three camera shots of the commercial, as DATA (one source for the Houdini keyframes, the coverage check and the previews). Plane of the ceramic tiles: 4 x 4 m in XZ at y = 0 (|x|, |z| <= 2), no sphere.
+# Camera: aperture 24 x 13.5 mm (16:9), looks along -Z, rotations rx (pitch, negative = looking down) then ry (yaw), order xyz (verified on the key light). Every shot is 5 s = 120 frames at 24 fps.
+#   shot 0  "Slide"       : slow lateral truck at 35 degrees of elevation, 50 mm, f/2.8, focus held on the middle of the picture            colour set 0 green
+#   shot 1  "Rise"        : crane up from a low oblique view to straight overhead, 28 mm, no depth of field, slight yaw                     colour set 1 multicolour
+#   shot 2  "Orbit"       : orbit of 62 degrees around the centre, 50 mm, f/2.8, rack focus from the near to the far tiles               colour set 2 teal
+# FR : les trois plans de la pub, en donnees.
+import math
+FPS, SHOT_FRAMES = 24, 120
+HAP, VAP = 24.0, 13.5
+SHOTS = {
+    0: {'name': 'Slide', 'focal': 50.0, 'fstop': 2.8, 'eye0': (-0.95, 1.40, 1.95), 'eye1': (0.95, 1.30, 1.80), 'tgt0': (-0.55, 0.0, -0.15), 'tgt1': (1.05, 0.0, -0.20), 'focus_mode': 'tracking', 'ease': 'smoother'},
+    1: {'name': 'Rise', 'focal': 28.0, 'fstop': 0.0, 'eye0': (0.0, 1.30, 2.70), 'eye1': (0.0, 4.00, 0.0), 'pitch0': -34.0, 'pitch1': -90.0, 'yaw0': 0.0, 'yaw1': -10.0, 'ease': 'smoother'},
+    2: {'name': 'Orbit', 'focal': 50.0, 'fstop': 2.8, 'radius': 1.95, 'az0': -38.0, 'az1': 24.0, 'h0': 1.50, 'h1': 1.20, 'tgt': (0.0, 0.0, -0.10), 'focus0': 1.6, 'focus1': 3.1, 'ease': 'smoother'},
+}
+def ease(t, kind='smoother'):
+    t = min(max(t, 0.0), 1.0)
+    return t * t * t * (t * (6 * t - 15) + 10) if kind == 'smoother' else t * t * (3 - 2 * t)
+def lerp(a, b, u): return a + (b - a) * u
+def lerp3(a, b, u): return tuple(lerp(x, y, u) for x, y in zip(a, b))
+def aim(eye, tgt):
+    d = (tgt[0] - eye[0], tgt[1] - eye[1], tgt[2] - eye[2]); h = math.hypot(d[0], d[2])
+    return math.degrees(math.atan2(d[1], h)), math.degrees(math.atan2(-d[0], -d[2]))      # rx, ry
+def pose(k, t):
+    """camera at progress t (0..1) of shot k -> dict with eye, rx, ry, focal, fstop, focus"""
+    S = SHOTS[k]; u = ease(t, S.get('ease', 'smoother'))
+    if k == 0:
+        eye = lerp3(S['eye0'], S['eye1'], u); tgt = lerp3(S['tgt0'], S['tgt1'], u); rx, ry = aim(eye, tgt)
+        focus = math.dist(eye, (lerp(-0.2, 0.2, u), 0.0, 0.2))
+    elif k == 1:
+        eye = lerp3(S['eye0'], S['eye1'], u); rx = lerp(S['pitch0'], S['pitch1'], u); ry = lerp(S['yaw0'], S['yaw1'], u); focus = eye[1] / max(math.sin(math.radians(-rx)), 0.2)
+    else:
+        a = math.radians(lerp(S['az0'], S['az1'], u)); h = lerp(S['h0'], S['h1'], u); eye = (S['radius'] * math.sin(a), h, S['radius'] * math.cos(a)); rx, ry = aim(eye, S['tgt']); focus = lerp(S['focus0'], S['focus1'], u)
+    return {'eye': eye, 'rx': rx, 'ry': ry, 'focal': S['focal'], 'fstop': S['fstop'], 'focus': focus}
+def basis(rx, ry):
+    a, b = math.radians(rx), math.radians(ry)
+    fwd = (-math.cos(a) * math.sin(b), math.sin(a), -math.cos(a) * math.cos(b))
+    right = (math.cos(b), 0.0, -math.sin(b)); up = (math.sin(a) * math.sin(b), math.cos(a), math.sin(a) * math.cos(b))
+    return fwd, right, up
+def plane_hits(p, extra=0.0):
+    """intersections of the corner and edge-middle rays of the frame with the plane y = 0; None when a ray misses the plane (above the horizon)"""
+    fwd, right, up = basis(p['rx'], p['ry']); th = HAP / (2 * p['focal']); tv = VAP / (2 * p['focal']); out = []
+    for uu in (-1, 0, 1):
+        for vv in (-1, 0, 1):
+            d = tuple(fwd[i] + uu * th * right[i] + vv * tv * up[i] for i in range(3))
+            if d[1] >= -1e-6: out.append(None); continue
+            s = -p['eye'][1] / d[1]; out.append((p['eye'][0] + s * d[0], p['eye'][2] + s * d[2]))
+    return out
+def coverage(limit=1.97):
+    """worst margin to the plane edge over the 120 frames of every shot; > 0 means the picture never leaves the plane"""
+    res = {}
+    for k in SHOTS:
+        worst = 9.0; miss = 0
+        for f in range(SHOT_FRAMES):
+            for h in plane_hits(pose(k, f / (SHOT_FRAMES - 1))):
+                if h is None: miss += 1; continue
+                worst = min(worst, limit - max(abs(h[0]), abs(h[1])))
+        res[k] = {'worst_margin_m': round(worst, 3), 'rays_missing_the_plane': miss}
+    return res
+if __name__ == '__main__':
+    for k, v in coverage().items(): print(k, SHOTS[k]['name'], v)
+    for k in SHOTS:
+        for t in (0, 0.5, 1): p = pose(k, t); print(k, t, 'eye', tuple(round(x, 2) for x in p['eye']), 'rx %.1f ry %.1f' % (p['rx'], p['ry']), 'focus %.2f' % p['focus'])

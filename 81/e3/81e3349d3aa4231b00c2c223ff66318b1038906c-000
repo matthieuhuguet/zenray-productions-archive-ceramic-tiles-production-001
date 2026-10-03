@@ -1,0 +1,22 @@
+# Évolution du storyboard de la pub (matériau Ceramic Tiles vert)
+
+Une entrée par version, jamais réécrite : une correction s'ajoute comme une nouvelle entrée qui cite l'ancienne.
+
+## S001, 1 October 2026 : première proposition, 16:9
+
+- 1 October 2026 : trois plans de 5 s en 16:9, quinze images clés (960 x 540) : plan 1 Slide (vert), plan 2 Rise (multicolore, palette de 01b), plan 3 Orbit (turquoise, couleur de 02a). Fichier : `S001_2026-10-01_first_proposal_16x9.png`.
+- 1 October 2026 : retour de Matthieu : les couleurs sont correctes; « il me suffit d'avoir un storyboard avec les keyframes importantes » (donc : pas de film d'aperçu).
+
+## S002, 1 October 2026 : format carré 1:1, six plans, sphères en cube lissé
+
+- 1 October 2026 : retour de Matthieu sur S001 : « Remplaçons le shot 1 [...] par un travelling parfait top down qui slide les 3 avec toujours 1 dans l'axe; donc résolution carrée », « la vidéo finale sera au format carré, 1:1, 4096 px », « il manque 3 autres plans, 4 5 6, avec la sphère, voire plusieurs sphères, même plan que le premier avec une rotation pendant le travelling, plusieurs couleurs ». Fichier : `S002_2026-10-01_square_6_shots_cube_spheres.png` (30 images clés 1024 x 1024, 16 échantillons).
+- 1 October 2026 : plan 1 Triptyque (glissement vertical sur les trois plans), plan 2 Rise, plan 3 Orbit (recalés pour l'ouverture carrée : 60 mm, rayon 1,8 m), plans 4 à 6 sur des sphères. Les scripts de cette version sont gardés : `AdShots_S002_square.py`, `PatchAdScene2_S002.py`, `PatchAdCameras_S002.py`.
+- 1 October 2026 : trouvailles du jour (pièges payés) : deux rangées de sphères au même endroit font du z-fighting (bandes qui alternent les couleurs) donc une rangée par plan, 10 m d'écart; une sphère UV a des pôles qui pincent le motif, Matthieu : « les UVs de la sphère ne sont pas parfaits, il faut prendre un carré et le smooth plusieurs fois comme sur Maya » donc sphère en cube (49 divisions par face, UV carrées par face, spherification à angles égaux) : 13 824 quads, aucun pôle.
+- 1 October 2026 : défaut visible de S002 : aux images prises en plein glissement (t = 0,26 et 0,74), les plans 4 à 6 montrent des sphères coupées et du noir.
+
+## S003, 1 October 2026 : plan 5 en coupes sèches, plan 6 en trio de sphères (rotation quaternion)
+
+- 1 October 2026 : retour de Matthieu sur S002 : « Il y a un problème pour le shot 6 : il faudrait 3 sphères de tailles équivalentes qui font une rotation quaternion au même moment... go le refaire. Pour le shot 5, ce n'est pas un travelling, c'est ça : tic en une seconde, sans transition, vers la sphère d'après... pendant la rotation. » Fichier : `S003_2026-10-01_cut_and_trio.png` (30 images clés, les plans 1 à 4 reprises de S002 sauf les deux images de glissement du plan 4, recalées à 1,00 s et 3,96 s).
+- 1 October 2026 : plan 5 : coupes aux images 40 et 80 du plan (soit 1,67 s et 3,33 s, trois tenues égales; à raccourcir en changeant `CUTS` dans `AdShots.py` si « une seconde » veut dire une coupe par seconde), les trois sphères identiques tournent à vitesse constante (240 degrés sur 5 s, 2 degrés par image). Preuve mesurée : rotation relative du motif entre l'image avant et l'image après une coupe : 2,0 degrés aux deux coupes (corrélation des contours 0,75 et 0,78, contre 0,18 sans rotation), donc la rotation traverse la coupe sans à-coup; entre l'image 481 et l'image 520 elle est de 79 degrés (attendu 78).
+- 1 October 2026 : plan 6 : trois sphères de même rayon (1,1 m) en triangle, multicolore au sommet, rotation par slerp de quaternions, toutes sur les mêmes 120 images, axes différents (angles 140, 155 et 165 degrés), ordre des rotations d'Euler choisi par sphère pour éviter le blocage de cardan (écart maximal entre clés 3,0 à 3,9 degrés), descente de caméra de 8,6 à 7,6 m. Remplace la grappe grosse sphère plus satellites.
+- 1 October 2026 : en attente de la validation de Matthieu; aucun calcul 4K lancé. Points ouverts à lui faire trancher : (1) coupes toutes les 1,67 s ou toutes les secondes; (2) un trio tout en noir autour des sphères, ou un fond (le noir est celui du ciel vide); (3) le turquoise de 02a n'est pas un bleu franc; (4) bruit des paillettes à 16 échantillons (disparaît à 64).

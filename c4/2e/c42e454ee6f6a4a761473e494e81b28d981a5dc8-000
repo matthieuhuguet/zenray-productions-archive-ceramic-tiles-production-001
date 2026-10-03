@@ -1,0 +1,33 @@
+# 30 September 2026 : measure a reference map (ao / roughness / basecolor) as a function of MY fields (glow, edge, centre).
+# Finds the window by correlating the map with the glow field, then bins the map values against glow (away from joints) and against
+# the edge distance. Output: ref-maps/profile_<map>.json. Usage: python3 MeasureAoRoughColor.py ao
+# FR : mesure une carte de reference en fonction de mes champs ; la fenetre est trouvee par correlation avec le champ de glow.
+import sys, json, numpy as np
+from PIL import Image
+D = '/Users/zenray/Create/Build/Productions/ZenRayHoudini/CeramicTiles'
+name = sys.argv[1]
+ref = np.asarray(Image.open(f'{D}/ref-maps/ref_{name}.png').convert('RGB')).astype(np.float32) / 255
+H, W = ref.shape[:2]; sc = 408.25 / 480; ww = int(round(W / sc))
+F = {k: Image.open(f'{D}/render/fields5/{k}.png').convert('L') for k in ('glow', 'edge', 'centre')}
+def win(k, x0): return np.asarray(F[k].crop((x0, 0, x0 + ww, 1920)).resize((W, H), Image.LANCZOS)).astype(np.float32) / 255
+best = (-2, 0)
+for x0 in range(480, 1920 - ww, 2):
+    c = np.corrcoef(win('glow', x0).ravel(), ref.mean(2).ravel())[0, 1]
+    best = max(best, (abs(c), x0))
+x0 = best[1]; g = win('glow', x0); e = win('edge', x0); c = win('centre', x0)
+print('window', x0, 'abs corr with glow', round(best[0], 3))
+away = e > 0.06                      # edge field is 0..1 of 8 bit for distances 0..1 (fits in 0.5 tile), joints are below 0.04 -> 0.06 is safe margin
+gb = np.linspace(g[away].min(), g[away].max(), 25)
+prof = []
+for lo, hi in zip(gb[:-1], gb[1:]):
+    s = away & (g >= lo) & (g < hi)
+    prof.append([float(lo), float(hi), int(s.sum())] + [float(ref[s][:, k].mean()) for k in range(3)] if s.sum() > 40 else None)
+eb = [0, 0.004, 0.008, 0.012, 0.02, 0.03, 0.045, 0.07, 0.1]
+jp = []
+for lo, hi in zip(eb[:-1], eb[1:]):
+    s = (e >= lo) & (e < hi)
+    jp.append([lo, hi, int(s.sum())] + [float(ref[s][:, k].mean()) for k in range(3)] if s.sum() > 40 else None)
+json.dump({'window': x0, 'glow_profile_[lo,hi,n,r,g,b]': prof, 'edge_profile': jp}, open(f'{D}/ref-maps/profile_{name}.json', 'w'))
+print('glow range', gb[0].round(3), gb[-1].round(3))
+for r in prof: print(r and [round(v, 3) for v in r])
+print('edge'); [print(r and [round(v, 3) for v in r]) for r in jp]

@@ -1,0 +1,46 @@
+# 1 October 2026 : patch (idempotent). ONE wrangle ZN_albedo__colour_variant after ZM in the basecolor chain: it multiplies the GLAZE colour by the gain table of the active colour set (HDA parameter colour_set, ref-maps/colour_variants.json).
+# The mask keeps the clay band, its hairlines and fringe dots, the tile joints and every rust dot exactly as they are; no other map reads colour_set, so height, normal, roughness, reflect and AO are the same for the three colour sets by construction
+# (checked by comparing the exported maps). FR : variante de couleur du verre seul ; motif, bande, joints et points de rouille restent identiques.
+import hou, json
+B = '/Users/zenray/Create/Build/Productions/ZenRayHoudini/CeramicTiles/'
+net = hou.node('/obj/CeramicGreen_Height')
+exec(open(B + 'Scripts/PatchShotParms.py').read())
+D = json.load(open(B + 'ref-maps/colour_variants.json'))
+zm = net.node('ZM_albedo__band_gain_mottle_and_fringe_match'); zl = net.node('ZL_albedo__contact_shadow_beside_the_ridge')
+code = zl.parm('vexsnippet').eval(); head = code[:code.index('float band = ')]
+arr = lambda nm, v: 'float %s[] = {%s};\n' % (nm, ', '.join('%.5f' % x for x in v))
+multi = D['multi']; teal = D['teal']
+FN = '''// 1 October 2026 : the base colour texture is read as sRGB by the shader (lin_render ~ tex^1.7 measured), so the gain is applied in LINEAR light
+float srgb2lin(float x) { return x <= 0.04045 ? x / 12.92 : pow((x + 0.055) / 1.055, 2.4); }
+float lin2srgb(float x) { return x <= 0.0031308 ? x * 12.92 : 1.055 * pow(x, 1.0 / 2.4) - 0.055; }
+'''
+body = FN + arr('GMR', [m[0] for m in multi]) + arr('GMG', [m[1] for m in multi]) + arr('GMB', [m[2] for m in multi]) + '''
+vector c = set(p@C.x, p@C.y, p@C.z);
+int cs = chi("/obj/CeramicGreen_Height/colour_set");
+if (cs > 0) {
+    vector gain = set(%.5f, %.5f, %.5f);
+    vector km = set(0.086 / 0.297, 0.099 / 0.297, 0.056 / 0.297);        // the material colour multiplier is the dark green (0.086, 0.099, 0.056) for the green set and a neutral 0.297 for the other sets (PatchMaterialSwitch.py): the texture then keeps room below 1.0
+    if (cs == 1) { int idx = clamp(tr, 0, 3) * 4 + clamp(tc, 0, 3); gain = set(GMR[idx], GMG[idx], GMB[idx]); }
+    float rg = c.x / max(c.y, 0.01);
+    float wg = smooth(5.6, 7.4, dpx) * smooth(3.4, 6.0, epx) * (1.0 - smooth(1.55, 2.0, rg));      // rust dots only (R/G above 1.6); the yellow-green parts of the glaze (R/G up to about 1.3) are glaze, the first threshold wrongly kept them green
+    vector cin = set(srgb2lin(c.x), srgb2lin(c.y), srgb2lin(c.z));
+    vector g0 = set(srgb2lin(%.5f), srgb2lin(%.5f), srgb2lin(%.5f));              // median glaze colour of the green texture, in linear light
+    float y0 = dot(g0, set(0.2126, 0.7152, 0.0722)); float yc = dot(cin, set(0.2126, 0.7152, 0.0722));
+    // luminance transfer: the lightness structure of the glaze (clouds, grain, wear) is kept, the chroma comes from the target colour; CHROMA_KEEP of the old chroma variation stays so that the glaze does not look flat
+    vector cl = lerp(g0 * gain * km * (yc / max(y0, 1e-4)), cin * gain * km, %.3f);
+    // the three sets use a different colour multiplier in the shader, so EVERY pixel is rescaled by km (the band, the hairlines, the joints and the rust dots then render exactly as in the green set); the glaze also gets its colour gain
+    vector other = cin * km;
+    vector mixl = lerp(other, cl, wg);
+    c = set(lin2srgb(clamp(mixl.x, 0.0, 1.0)), lin2srgb(clamp(mixl.y, 0.0, 1.0)), lin2srgb(clamp(mixl.z, 0.0, 1.0)));
+}
+p@C = set(c.x, c.y, c.z, p@C.w);
+''' % tuple(list(teal) + list(D['green_tex_median']) + [D['chroma_keep']])
+name = 'ZN_albedo__colour_variant_green_multi_teal'
+zn = net.node(name) or net.createNode('wrangle', name)
+zn.parm('vexsnippet').set(head + body)
+if zn.inputs() == () or zn.inputs()[0] is None:
+    for dst in zm.outputs():
+        if dst == zn: continue
+        for i, inp in enumerate(dst.inputs()):
+            if inp == zm: dst.setInput(i, zn)
+    zn.setInput(0, zm); zn.setPosition(zm.position() + hou.Vector2(2.6, 0)); zn.setColor(hou.Color((0.80, 0.55, 0.35)))

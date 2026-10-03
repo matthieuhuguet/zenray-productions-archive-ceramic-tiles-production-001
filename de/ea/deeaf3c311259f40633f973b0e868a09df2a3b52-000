@@ -1,0 +1,13 @@
+# 2 October 2026 : side by side sheet: reference | relit maps | base colour | height | normal. Usage: python3 Scripts/PreviewVariant.py <maps dir> <reference png> <out png> [exposure] [flip 1/0]. FR : planche de comparaison.
+import sys; sys.path.insert(0, '/Users/zenray/Create/Build/Productions/ZenRayHoudini/CeramicTiles/Scripts')
+import VariantTools as T, numpy as np
+from PIL import Image
+d, ref, out = sys.argv[1], sys.argv[2], sys.argv[3]; exp = float(sys.argv[4]) if len(sys.argv) > 4 else 1.0; flip = (sys.argv[5] != '0') if len(sys.argv) > 5 else True
+R = Image.open(ref).convert('RGB'); rl = T.relight(d, 1024, flip_green=flip, exposure=exp)
+a = np.asarray(R.resize((1024, 1024)), np.float32).mean(); b = np.asarray(rl, np.float32).mean()
+print('mean grey: reference %.1f, relit %.1f' % (a, b))
+crop = None
+if '--crop' in sys.argv: crop = tuple(int(x) for x in sys.argv[sys.argv.index('--crop') + 1].split(','))
+ims = [R, rl, Image.open(d + '/basecolor.png').convert('RGB'), Image.open(d + '/height.png').convert('RGB'), Image.open(d + '/normal.png').convert('RGB')]
+if crop: ims = [im.resize((1024, 1024)).crop(crop) if im.size != (1024, 1024) else im.crop(crop) for im in ims]
+T.sheet(ims, ['reference', 'relit (exp %.2f, flip %s)' % (exp, flip), 'basecolor', 'height', 'normal'], out, cell=520)

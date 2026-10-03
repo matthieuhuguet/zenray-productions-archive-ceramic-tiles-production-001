@@ -1,0 +1,6 @@
+# 1 October 2026 : patch for the fused graph: switch the raised ridge nodes (N9 bevel, ZK roughness, RK coat, ZL contact shadow) ON or OFF. PATCH_RIDGE = False turns them off (V058 look).
+import hou
+net = hou.node('/obj/CeramicGreen_Height')
+on = bool(globals().get('PATCH_RIDGE', True))
+for n in ('N9_normal__ridge_bevel_on_both_edges', 'ZK_rough__terracotta_roughness_mask_on_band_and_joints', 'RK_reflect__terracotta_coat_weight_on_band_and_joints', 'ZL_albedo__contact_shadow_beside_the_ridge'):
+    net.node(n).bypass(not on)

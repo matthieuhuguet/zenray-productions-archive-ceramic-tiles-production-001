@@ -1,0 +1,27 @@
+# 1 October 2026 : the FINAL RENDER of the commercial: 720 square frames (6 shots x 120) at 4096 x 4096, hython workers in parallel, resumable (an existing frame is skipped), logged, one shot after the other (shot 1 first, so that it can be looked at while the rest renders).
+# Why parallel workers: a single hython spends most of a frame outside the sampling loop (scene build, texture load, denoise, PNG write), so 3 or 4 workers use the cores much better (measured, see Protocol1.md phase 9). The first frame is rendered alone to build the .rat texture caches without a race.
+# Usage: python3 Scripts/RenderFinal.py [--shots 0,1,2,3,4,5] [--workers 4] [--spp 32] [--denoise oidn] [--res 4096] [--hip render/_ad_final.hiplc] [--out render/final] ; run it DETACHED (setsid nohup caffeinate -i python3 ...). Progress: <out>/PROGRESS.json, log: <out>/LOG.txt. FR : rendu final, plusieurs processus, reprenable.
+import sys, os, json, subprocess, time
+B = '/Users/zenray/Create/Build/Productions/ZenRayHoudini/CeramicTiles/'
+HYTHON = '/Users/zenray/Create/Build/Houdini22/Houdini22.0.368/Frameworks/Houdini.framework/Versions/Current/Resources/bin/hython'
+def arg(name, default): return sys.argv[sys.argv.index(name) + 1] if name in sys.argv else default
+shots = [int(x) for x in arg('--shots', '0,1,2,3,4,5').split(',')]; W = int(arg('--workers', 4)); spp = int(arg('--spp', 32)); den = arg('--denoise', 'oidn'); res = int(arg('--res', 4096))
+hip = os.path.abspath(B + arg('--hip', 'render/_ad_final.hiplc')) if not os.path.isabs(arg('--hip', 'render/_ad_final.hiplc')) else arg('--hip', '')
+out = os.path.abspath(B + arg('--out', 'render/final')); os.makedirs(out, exist_ok=True); log = open(out + '/LOG.txt', 'a')
+def say(m): line = time.strftime('%d %b %Y %H:%M:%S ') + m; log.write(line + '\n'); log.flush(); print(line, flush=True)
+def todo(k): return [f for f in range(1 + 120 * k, 121 + 120 * k) if not os.path.exists(out + '/ad_%04d.png' % f)]
+def run(frames, keep):
+    args = [HYTHON, B + 'Scripts/RenderAdFrames.py', hip, out, str(res), str(res), str(spp), ','.join(map(str, frames))] + (['--denoise', den] if den != 'off' else []) + (['--keep-rat'] if keep else [])
+    return subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, cwd=B)
+t0 = time.time(); say('start shots %s workers %d spp %d denoise %s res %d hip %s' % (shots, W, spp, den, res, hip))
+for k in shots:
+    fr = todo(k)
+    if not fr: say('shot %d already complete' % k); continue
+    if not any(os.path.exists(out + '/ad_%04d.png' % f) for f in range(1, 721)):       # first frame of the whole job alone: builds the .rat caches
+        p = run(fr[:1], False); o = p.communicate()[0]; say('warm-up frame %d: %s' % (fr[0], o.strip().split('\n')[-2][:160] if o else '')); fr = todo(k)
+    procs = [run(fr[i::W], True) for i in range(W) if fr[i::W]]
+    for p in procs: p.wait()
+    done = sum(1 for f in range(1, 721) if os.path.exists(out + '/ad_%04d.png' % f))
+    json.dump({'shots_requested': shots, 'frames_done': done, 'of': 720, 'elapsed_hours': round((time.time() - t0) / 3600, 2), 'last_shot': k, 'updated': time.strftime('%d %B %Y %H:%M')}, open(out + '/PROGRESS.json', 'w'))
+    say('shot %d finished: %d of 720 frames exist, %.2f h elapsed' % (k + 1, done, (time.time() - t0) / 3600))
+say('all requested shots finished')

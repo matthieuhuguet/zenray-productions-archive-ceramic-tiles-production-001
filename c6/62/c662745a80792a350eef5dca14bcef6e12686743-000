@@ -1,0 +1,31 @@
+# 2 October 2026 : renders the three new planes (01b, 02a, 02b) from their top cameras with Karma XPU (headless, a saved hip, the live session is never touched) and builds a comparison sheet per pattern, reference | render. Usage: hython Scripts/RenderVariantPlanes.py <hip> <outdir> <res> <spp> [01b,02a,02b] [--cpu] [--set name=value ...]. FR : rend les trois plans avec Karma XPU et fait la planche reference | rendu.
+import hou, sys, os, time
+B = '/Users/zenray/Create/Build/Productions/ZenRayHoudini/CeramicTiles/'
+hip, outdir, res, spp = sys.argv[1], os.path.abspath(sys.argv[2]), int(sys.argv[3]), int(sys.argv[4]); os.makedirs(outdir, exist_ok=True)
+keys = [a for a in sys.argv[5:6] if a and not a.startswith('--')]; keys = keys[0].split(',') if keys else ['01b', '02a', '02b']
+REF = {'01b': 'ref/01b-julien-delannoy-10-right.png', '02a': 'ref/02a-julien-delannoy-11-left.png', '02b': 'ref/02b-julien-delannoy-11-right.png'}
+hou.hipFile.load(os.path.abspath(hip), suppress_save_prompt=True, ignore_load_warnings=True)
+net = hou.node('/obj/CeramicGreen_Height')
+for i, a in enumerate(sys.argv):
+    if a == '--set':
+        k, v = sys.argv[i + 1].split('='); net.parm(k).deleteAllKeyframes(); net.parm(k).set(float(v))
+st = hou.node('/stage'); kp = st.node('cg_karma'); rop = st.node('cg_render')
+kp.parm('samplesperpixel').set(spp); kp.parm('varianceaa_maxsamples').set(spp); kp.parm('pathtracedsamples').set(spp)      # XPU reads pathtracedsamples, the CPU delegate reads samplesperpixel (EngineTest.py, 1 October 2026)
+rop.parm('renderer').set('BRAY_HdKarma' if '--cpu' in sys.argv else 'BRAY_HdKarmaXPU')
+rop.parm('override_res').set('specific'); rop.parm('res_user1').set(res); rop.parm('res_user2').set(res)
+tag = 'cpu' if '--cpu' in sys.argv else 'xpu'
+for k in keys:
+    out = os.path.join(outdir, '%s_%s_%d.png' % (k, tag, res))
+    if os.path.exists(out): os.remove(out)
+    kp.parm('camera').set('/cameras/cg_cam_' + k); rop.parm('outputimage').set(out)
+    t = time.time(); o = hou.hscript('render -V 1 /stage/cg_render')
+    print(k, tag, 'took %.1f s' % (time.time() - t), 'exists', os.path.exists(out), flush=True)
+    if not os.path.exists(out): print('HSCRIPT', o[0][-500:], o[1][-500:])
+# comparison sheets (reference left, render right), same size
+from PIL import Image, ImageDraw
+for k in keys:
+    out = os.path.join(outdir, '%s_%s_%d.png' % (k, tag, res))
+    if not os.path.exists(out): continue
+    a = Image.open(B + REF[k]).convert('RGB').resize((1024, 1024)); b = Image.open(out).convert('RGB').resize((1024, 1024))
+    s = Image.new('RGB', (2048, 1024 + 28), (16, 16, 16)); s.paste(a, (0, 28)); s.paste(b, (1024, 28)); d = ImageDraw.Draw(s); d.text((8, 8), 'reference ' + k, fill=(230, 230, 230)); d.text((1032, 8), 'Karma %s %d spp, %d px' % (tag.upper(), spp, res), fill=(230, 230, 230))
+    s.save(os.path.join(outdir, 'compare_%s_%s.png' % (k, tag)))

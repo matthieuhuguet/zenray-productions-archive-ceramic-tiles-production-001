@@ -1,0 +1,25 @@
+# 1 October 2026 : the CUBE SPHERE (Matthieu, 1 October 2026: "prendre un carré et le smooth plusieurs fois comme sur Maya pour que les UV et la topologie soient meilleurs"). The UV sphere had two poles where the tiles pinch into spokes and an uneven polygon size.
+# A subdivided cube gives six square faces of quads of nearly equal size and NO pole: each face carries the whole 4 x 4 tile texture, so the cube edges fall on tile joints. The cube is spherified with the equal-angle mapping (each coordinate c -> tan(pi c / 4), then normalise), which keeps the
+# faces evenly covered (area ratio about 1.3 instead of 2.6 for the plain normalisation). Per-face UVs are VERTEX attributes (the vertices on a cube edge keep one UV per face). 6 x 48 x 48 = 13 824 quads. Unit sphere at the origin; the LOP xform scales and places it.
+# FR : sphere cubique : six faces carrees, pas de pole, un jeu d'UV complet par face.
+import hou
+g = hou.node('/obj/CeramicGreen_Sphere')
+for c in list(g.children()): c.destroy()
+DIV = 49
+box = g.createNode('box', 'cube'); box.parm('type').set('polymesh') if box.parm('type') else None
+for p, v in (('sizex', 2.0), ('sizey', 2.0), ('sizez', 2.0)): box.parm(p).set(v)
+box.parm('divrate1').set(DIV); box.parm('divrate2').set(DIV); box.parm('divrate3').set(DIV)
+box.parm('dodivs').set(1)
+uv = g.createNode('attribwrangle', 'uv_per_face'); uv.setInput(0, box); uv.parm('class').set('vertex')
+uv.parm('snippet').set('''// the face of this primitive = the dominant axis of its centre; (a, b) in [-1, 1] on the face, oriented like the top view (right = +X, up = -Z) for the +Y face
+vector c = primuv(0, "P", @primnum, {0.5, 0.5, 0});
+vector ac = abs(c); vector p = @P; float a; float b;
+if (ac.y >= ac.x && ac.y >= ac.z) { if (c.y > 0) { a = p.x; b = -p.z; } else { a = p.x; b = p.z; } }
+else if (ac.z >= ac.x) { if (c.z > 0) { a = p.x; b = p.y; } else { a = -p.x; b = p.y; } }
+else { if (c.x > 0) { a = -p.z; b = p.y; } else { a = p.z; b = p.y; } }
+v@uv = set((a + 1.0) * 0.5, (b + 1.0) * 0.5, 0.0);''')
+sph = g.createNode('attribwrangle', 'spherify'); sph.setInput(0, uv); sph.parm('class').set('point')
+sph.parm('snippet').set('''vector q = set(tan(PI * @P.x / 4.0), tan(PI * @P.y / 4.0), tan(PI * @P.z / 4.0));
+@P = normalize(q); @N = @P;''')
+out = g.createNode('null', 'OUT'); out.setInput(0, sph); out.setDisplayFlag(True); out.setRenderFlag(True)
+g.layoutChildren()

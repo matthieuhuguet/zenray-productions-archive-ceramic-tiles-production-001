@@ -1,0 +1,51 @@
+# 1 October 2026 : the FINAL RENDER of the commercial in UNREAL (Lumen, Movie Render Queue), 720 square frames at 4096 x 4096 into render/final_ue/ad_<Houdini frame>.png, resumable and self-watching (Matthieu, 1 October 2026: "on va passer dans Unreal ... /dont-stop").
+# It waits for the editor of the ZenRayShards project to answer (MCP), checks level / sequence / six cameras, submits ONE Movie Render Queue job from the first missing frame to frame 720 and watches the output folder; if the editor dies or the output stalls for 6 minutes it runs Scripts/unreal_guard.py ensure
+# of the project and submits the job again from the first missing frame. Progress: render/final_ue/PROGRESS.json and LOG.txt. Usage: python3 Scripts/RunUeFinal.py [--spatial 2] [--temporal 4] [--res 4096] [--from 1] [--to 720] (run it detached).
+# FR : rendu final Unreal de la pub, reprenable, surveille tout seul.
+import sys, os, json, time, subprocess, glob
+B = '/Users/zenray/Create/Build/Productions/ZenRayHoudini/CeramicTiles/'
+ZRS = '/Users/zenray/Create/Build/Productions/ZenRayShards/ZenRayShards/'
+def arg(n, d): return type(d)(sys.argv[sys.argv.index(n) + 1]) if n in sys.argv else d
+# 1 October 2026: the cinematic depth of field crashes the editor on this Mac (SIGSEGV in FDiaphragmDOFReduceCS, bindless shader parameter, at the camera cut to the orbit shot f/2.8, twice, 19:14 and 19:21): r.DepthOfFieldQuality 0 switches it off for the render
+CVARS = {'r.DepthOfFieldQuality': 0}
+sp, tp, res, f_from, f_to = arg('--spatial', 2), arg('--temporal', 4), arg('--res', 4096), arg('--from', 1), arg('--to', 720)
+OUT = B + 'render/final_ue'; os.makedirs(OUT, exist_ok=True); log = open(OUT + '/LOG.txt', 'a')
+def say(m): line = time.strftime('%d %b %Y %H:%M:%S ') + m; log.write(line + '\n'); log.flush(); print(line, flush=True)
+def ping():
+    # readiness = the editor answers through the FILE QUEUE (the bridge we really use). The MCP port can stay silent on a healthy editor (seen 1 October 2026), so it is not the test.
+    return queue('unreal/ue_ping.py', 25).startswith('OK')
+def editor_alive(): return subprocess.run(['pgrep', '-f', 'UnrealEditor.app/Contents/MacOS/UnrealEditor'], capture_output=True, text=True).stdout.strip() != ''
+def done(): return {int(os.path.basename(f)[3:7]) for f in glob.glob(OUT + '/ad_[0-9][0-9][0-9][0-9].png')}
+def first_missing(): d = done(); return next((f for f in range(f_from, f_to + 1) if f not in d), None)
+def queue(script, t=300): return subprocess.run([sys.executable, B + 'Scripts/UeQueue.py', B + script, str(t)], capture_output=True, text=True).stdout
+def progress(): d = done(); json.dump({'frames_done': len(d), 'of': f_to - f_from + 1, 'last_frame': max(d) if d else 0, 'updated': time.strftime('%d %B %Y %H:%M:%S'), 'spatial': sp, 'temporal': tp, 'res': res}, open(OUT + '/PROGRESS.json', 'w'))
+say('start: frames %d to %d, %d x %d, spatial %d, temporal %d' % (f_from, f_to, res, res, sp, tp)); t_start = time.time()
+for attempt in range(20):
+    t0 = time.time()
+    while not ping():
+        if time.time() - t0 > 240 and not editor_alive(): say('editor process absent: guard ensure'); subprocess.run([sys.executable, ZRS + 'Scripts/unreal_guard.py', 'ensure'], capture_output=True, text=True, cwd=ZRS); t0 = time.time()      # never relaunch a LIVE editor
+        time.sleep(5)
+    fm = first_missing()
+    if fm is None: say('all frames exist'); break
+    say('editor ready; check: ' + queue('unreal/ue_check_ready.py', 120).replace('\n', ' | ')[:400])
+    json.dump({'start': fm, 'end': f_to, 'res': res, 'spatial': sp, 'temporal': tp, 'warmup': 16, 'out': OUT, 'cvars': CVARS}, open(B + 'unreal/render_job.json', 'w'))
+    say('submit job from frame %d: %s' % (fm, queue('unreal/ue_render.py', 300).replace('\n', ' ')[:200]))
+    last_n, last_t = len(done()), time.time()
+    # sanity gate on the very first frame: it must be the commercial (a median luminance of the green plane near 0.04), not another level
+    if not done() or True:
+        t_gate = time.time()
+        while not (done() and 1 in done() or fm != 1 and done()) and time.time() - t_gate < 240: time.sleep(3)
+        if done():
+            import numpy as np
+            from PIL import Image
+            f1 = OUT + '/ad_%04d.png' % min(done()); x = np.asarray(Image.open(f1).convert('RGB').resize((256, 256)), dtype=np.float32) / 255; lum = float(np.median(np.where(x <= 0.04045, x / 12.92, ((x + 0.055) / 1.055) ** 2.4).mean(axis=2)))
+            say('first frame %s median luminance %.4f' % (os.path.basename(f1), lum))
+            if not (0.01 < lum < 0.2): say('WRONG CONTENT (not the commercial): stop'); queue('unreal/ue_stop_render.py', 60); sys.exit(2)
+    while True:
+        time.sleep(15); n = len(done()); progress()
+        if n != last_n: last_n, last_t = n, time.time(); 
+        if first_missing() is None: break
+        if time.time() - last_t > 360: say('no new frame for 6 minutes (%d done): restart from the first missing frame' % n); break
+        if int(time.time() - last_t) % 600 < 15 and False: pass
+    if first_missing() is None: break
+d = done(); progress(); say('finished: %d of %d frames in %.1f min' % (len(d), f_to - f_from + 1, (time.time() - t_start) / 60))

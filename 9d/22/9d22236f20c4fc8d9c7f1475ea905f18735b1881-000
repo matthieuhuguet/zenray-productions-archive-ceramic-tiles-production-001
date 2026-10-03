@@ -1,0 +1,6 @@
+# 1 October 2026 : patch (idempotent). The commercial shows the PLANE ONLY: the test sphere is removed from the merge (the sphere node and /obj/CeramicGreen_Sphere stay in the file, PATCH_SPHERE = True puts it back).
+import hou
+st = hou.node('/stage'); mg = st.node('cg_merge')
+if mg is not None:
+    if bool(globals().get('PATCH_SPHERE', False)): mg.setInput(1, st.node('cg_sphere'))
+    else: mg.setInput(1, None)

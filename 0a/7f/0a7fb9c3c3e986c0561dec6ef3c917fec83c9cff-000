@@ -1,0 +1,14 @@
+# 1 October 2026 : runs a Python file INSIDE the open Unreal editor of the ZenRayShards project through the file-queue bridge (Content/Python/init_unreal.py of the project: a .py dropped in ~/.claude/tmp/tmp-unreal-queue runs on the next editor tick, its printed output lands in done/<name>.out).
+# Usage: python3 Scripts/UeQueue.py <script.py> [timeout seconds = 300] . Prints the .out file (OK or ERROR + traceback). Never launches the editor with -ExecutePythonScript (it quits when the script returns, project rule); use the project guard (Scripts/unreal_guard.py ensure) if the editor is not running.
+# FR : execute un script Python dans l'editeur Unreal ouvert, par le pont de file du projet.
+import sys, os, time, shutil
+Q = os.path.expanduser('~/.claude/tmp/tmp-unreal-queue')
+src = sys.argv[1]; timeout = float(sys.argv[2]) if len(sys.argv) > 2 else 300.0
+name = 'ad_%d_%s' % (int(time.time()), os.path.basename(src)); name = name if name.endswith('.py') else name + '.py'
+os.makedirs(Q + '/done', exist_ok=True); out = Q + '/done/' + name[:-3] + '.out'
+shutil.copy(src, Q + '/' + name + '.tmp'); os.replace(Q + '/' + name + '.tmp', Q + '/' + name)
+t0 = time.time()
+while not os.path.exists(out):
+    if time.time() - t0 > timeout: print('TIMEOUT after %d s (is the editor busy or closed?)' % timeout); sys.exit(2)
+    time.sleep(0.5)
+time.sleep(0.3); txt = open(out).read(); print(txt); sys.exit(0 if txt.startswith('OK') else 1)

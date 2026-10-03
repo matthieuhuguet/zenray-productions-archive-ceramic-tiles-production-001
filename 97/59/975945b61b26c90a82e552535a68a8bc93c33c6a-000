@@ -1,0 +1,21 @@
+# 2 October 2026 : probe (throw-away hip, nothing saved): how the switch COP is parameterised and how a COP node cooks to pixels in hython. FR : sonde jetable.
+import hou, numpy as np
+net = hou.node('/obj').createNode('copnet', 'probe')
+cs = []
+for i, col in enumerate(((1, 0, 0), (0, 1, 0), (0, 0, 1), (1, 1, 0))):
+    c = net.createNode('constant', 'c%d' % i); print('constant parms', [p.name() for p in c.parms()][:12]) if i == 0 else None
+    c.parmTuple('color').set(col) if c.parmTuple('color') else None
+    cs.append(c)
+sw = net.createNode('switch', 'sw'); print('switch parms', [(p.name(), p.eval()) for p in sw.parms()])
+print('switch inputs', sw.type().maxNumInputs(), sw.type().minNumInputs())
+for i, c in enumerate(cs): sw.setInput(i, c)
+print('inputs wired', [i.name() for i in sw.inputs()])
+for idx in range(4):
+    for pn in ('input', 'index', 'switch'):
+        if sw.parm(pn): sw.parm(pn).set(idx); break
+    sw.cook(force=True)
+    try:
+        lay = sw.layer('C'); print(idx, 'layer', lay.bufferResolution() if hasattr(lay, 'bufferResolution') else lay, end=' ')
+        b = np.frombuffer(lay.allBufferBytes(), dtype=np.float32) if hasattr(lay, 'allBufferBytes') else None
+        print('first px', b[:4] if b is not None else None)
+    except Exception as e: print('layer read failed', e)

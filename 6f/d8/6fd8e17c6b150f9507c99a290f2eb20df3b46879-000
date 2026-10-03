@@ -1,0 +1,58 @@
+# 1 October 2026 : patch (idempotent) that puts a SPHERE with the same material to the right of the plane, to see how the material wraps (Matthieu, 1 October 2026), plus a WIDE camera that frames plane and sphere.
+# The render camera cg_camera is not touched, so the plane renders stay identical. The sphere UV makes square tiles: radius R, the texture (4 x 4 tiles) repeats UREP times around and VREP times from pole to pole (2 x 1 for the circumference 2 pi R against the half meridian pi R).
+# FR : sphere a droite du plan avec le meme materiau, et camera large ; la camera de rendu du plan n'est pas modifiee.
+import hou
+P = {'radius': 1.2, 'gap': 0.5, 'urep': 2.0, 'vrep': 1.0, 'rows': 96, 'cols': 192, 'cam_height_factor': 1.18}
+obj = hou.node('/obj'); st = hou.node('/stage')
+cx = 2.0 + P['gap'] + P['radius']                       # the plane spans x -2 .. 2
+g = obj.node('CeramicGreen_Sphere') or obj.createNode('geo', 'CeramicGreen_Sphere')
+for c in g.children(): 
+    if c.name() not in ('sphere1', 'uv', 'normals', 'OUT'): c.destroy()
+sph = g.node('sphere1') or g.createNode('sphere', 'sphere1')
+sph.parm('type').set('polymesh'); sph.parm('radx').set(P['radius']); sph.parm('rady').set(P['radius']); sph.parm('radz').set(P['radius'])
+sph.parm('tx').set(0.0); sph.parm('ty').set(0.0); sph.parm('tz').set(0.0); sph.parm('rows').set(P['rows']); sph.parm('cols').set(P['cols'])
+# 1 October 2026 : the Rows and Columns texture SOP gives every polygon its own 0..1 square (60 tiny repeats); the UV is computed from the position instead: u around the Y axis, v from the north pole, both multiplied by the repeat counts,
+# seam handled per polygon (a polygon whose u values span more than half a turn gets +1 on the small ones), pole vertices take the mean u of their polygon.
+uv = g.node('uv') or g.createNode('attribwrangle', 'uv')
+if uv.type().name() != 'attribwrangle':
+    uv.destroy(); uv = g.createNode('attribwrangle', 'uv')
+uv.setInput(0, sph); uv.parm('class').set('vertex')
+uv.parm('snippet').set('''vector c = set(0.0, 0.0, 0.0);
+int pts[] = primpoints(0, @primnum);
+float us[]; float mn = 9.0; float mx = -9.0;
+foreach (int pt; pts) { vector q = point(0, "P", pt) - c; float uu = (length(set(q.x, q.z)) < 1e-4) ? -1.0 : atan2(q.z, q.x) / (2.0 * PI) + 0.5; append(us, uu); if (uu >= 0.0) { mn = min(mn, uu); mx = max(mx, uu); } }
+float mean = 0.0; int n = 0; foreach (float uu; us) if (uu >= 0.0) { mean += (mx - mn > 0.5 && uu < 0.5) ? uu + 1.0 : uu; n++; }
+mean /= max(n, 1);
+vector pq = point(0, "P", @ptnum) - c;
+float u0 = (length(set(pq.x, pq.z)) < 1e-4) ? mean : atan2(pq.z, pq.x) / (2.0 * PI) + 0.5;
+if (mx - mn > 0.5 && u0 < 0.5) u0 += 1.0;
+float v0 = acos(clamp(pq.y / %f, -1.0, 1.0)) / PI;
+v@uv = set(u0 * %f, v0 * %f, 0.0);''' % (P['radius'], P['urep'], P['vrep']))
+# the UV is computed on the sphere at the origin (axis Y), then the sphere is turned so that its axis lies in the plane of the picture (north pole up in the image) and moved to the right of the plane
+xf = g.node('place') or g.createNode('xform', 'place')
+xf.setInput(0, uv); xf.parm('rx').set(-90.0); xf.parm('tx').set(cx); xf.parm('ty').set(P['radius']); xf.parm('tz').set(0.0)
+nm = g.node('normals') or g.createNode('normal', 'normals'); nm.setInput(0, xf)
+out = g.node('OUT') or g.createNode('null', 'OUT'); out.setInput(0, nm); out.setDisplayFlag(True); out.setRenderFlag(True)
+g.layoutChildren()
+# --- stage
+sp = st.node('cg_sphere') or st.createNode('sopimport', 'cg_sphere')
+sp.parm('soppath').set(out.path()); sp.parm('pathprefix').set('/cg_sphere')
+plane = st.node('cg_plane'); mats = st.node('cg_materials'); assign = st.node('cg_assign')
+mg = st.node('cg_merge') or st.createNode('merge', 'cg_merge')
+mg.setInput(0, plane); mg.setInput(1, sp); mats.setInput(0, mg)
+assign.parm('primpattern1').set('/cg_plane/* /cg_sphere/*')
+cam = st.node('cg_camera'); wide = st.node('cg_camera_wide')
+if wide is None:
+    wide = st.createNode('camera', 'cg_camera_wide')
+    # insert after cg_camera: every consumer of cg_camera now reads the wide camera node
+    for dst in list(cam.outputs()):
+        if dst == wide: continue
+        for i, x in enumerate(dst.inputs()):
+            if x == cam: dst.setInput(i, wide)
+    wide.setInput(0, cam)
+width = (cx + P['radius'] + 0.15) - (-2.15)
+H = width * 35.0 / 24.0 * P['cam_height_factor']
+for k, v in (('primpath', '/cameras/cg_camera_wide'), ('tx', (cx + P['radius'] + 0.15 - 2.15) / 2.0), ('ty', H), ('tz', 0.0), ('rx', -90.0), ('ry', 0.0), ('rz', 0.0), ('focalLength', 35.0), ('horizontalAperture', 24.0), ('verticalAperture', 24.0 * 3.0 / 5.0)):
+    p = wide.parm(k)
+    if p is not None: p.set(v)
+st.layoutChildren()

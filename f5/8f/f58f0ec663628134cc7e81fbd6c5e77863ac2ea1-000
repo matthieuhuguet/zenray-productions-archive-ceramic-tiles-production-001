@@ -1,0 +1,23 @@
+# 2 October 2026 : lays out the variant branches (V1 01b, V2 02a, V3 02b) one band each, one row per map in the order height, normal, basecolor, roughness, reflect, ao, and wraps each band in a coloured network box with its name. Idempotent, touches only the nodes whose name starts with V1/V2/V3 and the boxes it made. Usage: hython Scripts/TidyVariants.py <hip in> <hip out>. FR : range les branches des variantes, une boite par variante.
+import hou, sys
+hou.hipFile.load(sys.argv[1], suppress_save_prompt=True, ignore_load_warnings=True)
+net = hou.node('/obj/CeramicGreen_Height')
+BANDS = [('V1', '01b pillow tiles, 6 x 6 cushions with star voids', (0.85, 0.65, 0.30)), ('V2', '02a serpentine arcs, 5 x 5 Truchet tiles', (0.30, 0.70, 0.60)), ('V3', '02b terracotta bowls, 6 x 6 tiles', (0.80, 0.50, 0.30))]
+ORDER = ['height', 'NORMAL_01', 'NORMAL_02', 'basecolor', 'roughness', 'reflect', 'ao']
+for b in net.networkBoxes():
+    if b.comment().startswith('VARIANT'): b.destroy()
+Y0, GAP = -30.0, 2.2
+for k, (p, title, col) in enumerate(BANDS):
+    nodes = [n for n in net.children() if n.name().startswith(p) and (n.name()[len(p):len(p) + 3].lower() in ('hei', 'bas', 'rou', 'ref', 'ao_', 'nor') or n.name()[len(p):].startswith('NORMAL'))]
+    top = Y0 - 30.0 * k
+    for n in nodes:
+        rest = n.name()[len(p):]
+        row = next((i for i, key in enumerate(ORDER) if rest.startswith(key)), None)
+        if row is None: continue
+        x = {'NORMAL_01': 2.6, 'NORMAL_02': 5.2}.get(next((key for key in ORDER if rest.startswith(key) and key.startswith('NORMAL')), ''), 0.0)
+        n.setPosition(hou.Vector2(x, top - GAP * row)); n.setColor(hou.Color(col))
+    box = net.createNetworkBox('Variant_%s' % p); box.setComment('VARIANT %s : %s' % (p, title)); box.setColor(hou.Color(col))
+    for n in nodes: box.addNode(n)
+    box.fitAroundContents()
+print('tidied', [len([n for n in net.children() if n.name().startswith(p)]) for p, _, _ in BANDS])
+hou.hipFile.save(sys.argv[2])

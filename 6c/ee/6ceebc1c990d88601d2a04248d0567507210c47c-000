@@ -1,0 +1,24 @@
+# 1 October 2026 : patch (idempotent). Adds the folder 'HDA Shot' to the Copernicus network node /obj/CeramicGreen_Height with the switch of the commercial:
+#   shot        0, 1, 2   : which of the three camera shots / colour sets is active (expression: floor(($F - 1) / shot_frames), so the whole 360 frame ad plays by itself; set a constant to lock one shot)
+#   shot_t      0 .. 1    : progress inside the shot (expression from $F); constant for a still
+#   colour_set  0, 1, 2   : 0 = green (01a, the current look), 1 = multicolour (01b palette), 2 = teal / emerald (02a); expression: shot, delete it to preview any colour with any camera
+#   shot_frames           : length of a shot in frames (120 = 5 s at 24 fps)
+# 4 parameters, within the 8 per category rule. FR : le commutateur de la pub : shot, shot_t, colour_set, shot_frames.
+import hou
+net = hou.node('/obj/CeramicGreen_Height')
+ptg = net.parmTemplateGroup()
+if ptg.findFolder(['HDA Shot']) is None:
+    f = hou.FolderParmTemplate('hda_shot', 'HDA Shot', folder_type=hou.folderType.Simple)
+    f.addParmTemplate(hou.IntParmTemplate('shot_frames', 'Shot length (frames)', 1, default_value=(120,), min=24, max=480, help='120 frames = 5 s at 24 fps'))
+    f.addParmTemplate(hou.IntParmTemplate('shot', 'Shot (0 to 5)', 1, default_value=(0,), min=0, max=5, help='switch: camera shot and colour set. Expression of the frame by default'))
+    f.addParmTemplate(hou.FloatParmTemplate('shot_t', 'Shot progress', 1, default_value=(0.0,), min=0.0, max=1.0, help='0 to 1 inside the shot. Expression of the frame by default'))
+    f.addParmTemplate(hou.IntParmTemplate('colour_set', 'Colour set (0 green, 1 multi, 2 teal)', 1, default_value=(0,), min=0, max=2, help='0 green (01a), 1 multicolour (01b palette), 2 teal / emerald (02a). Only the colour changes, never the pattern'))
+    ptg.append(f); net.setParmTemplateGroup(ptg)
+else:      # 1 October 2026 : storyboard v2 has six shots: widen the existing switch
+    pt = ptg.find('shot'); pt.setMaxValue(5); pt.setLabel('Shot (0 to 5)'); ptg.replace('shot', pt); net.setParmTemplateGroup(ptg)
+E = {'shot': 'max(0, min(5, floor(($F - 1) / ch("shot_frames"))))', 'shot_t': 'clamp((($F - 1) - ch("shot") * ch("shot_frames")) / (ch("shot_frames") - 1), 0, 1)', 'colour_set': 'ch("shot") % 3'}
+if bool(globals().get('PATCH_SHOT_EXPR', True)):
+    for k, e in E.items():
+        p = net.parm(k)
+        p.deleteAllKeyframes(); p.setExpression(e, hou.exprLanguage.Hscript)
+hou.playbar.setFrameRange(1, 720); hou.playbar.setPlaybackRange(1, 720); hou.setFps(24)

@@ -1,0 +1,25 @@
+# 1 October 2026 : patch for the fused graph. Rebuilds the snippet of N9 so that the golden band is a ROUNDED RIDGE (half cylinder) instead of a flat road with two painted lines: across the band the normal tilts from -ROUND_MAG on one edge to +ROUND_MAG on the
+# other along the gradient of the SIGNED distance to the arch, so the key light catches one edge and leaves the other in shade, exactly what makes 01a's band read as raised clay. The joint bevel stays. FR : liseré en demi cylindre.
+import hou
+net = hou.node('/obj/CeramicGreen_Height')
+mag = float(globals().get('PATCH_ROUND_MAG', 0.75)); mix = float(globals().get('PATCH_ROUND_MIX', 0.95))
+n9 = net.node('N9_normal__ridge_bevel_on_both_edges')
+code = n9.parm('vexsnippet').eval()
+head = code[:code.index('float e = PXL')]
+joint = code[code.index('// joint: a short outward bevel'):]
+HW = 4.8
+if 'float sdist_at' not in head: head = head.replace('float dA; float dB; float dsh;', '''float sdist_at(int LT[]; int LC[]; int tc; int tr; float uu; float vv; float RAD; int MODE) { float a; float b; float s; lay(LT, LC, tc, tr, uu, vv, RAD, MODE, a, b, s); return (abs(a) < abs(b)) ? a : b; }
+float dA; float dB; float dsh;''', 1)      # idempotent: the function is added once
+body = '''float e = PXL;
+float dux = sdist_at(LT01A, LC01A, tc, tr, u + e, v, RAD, MODE) - sdist_at(LT01A, LC01A, tc, tr, u - e, v, RAD, MODE);
+float dvy = sdist_at(LT01A, LC01A, tc, tr, u, v + e, RAD, MODE) - sdist_at(LT01A, LC01A, tc, tr, u, v - e, RAD, MODE);
+vector2 g = set(dux, dvy); float gl = length(g); if (gl > 1e-6) g /= gl; else g = set(0.0, 0.0);
+float sd = ((abs(dA) < abs(dB)) ? dA : dB) / PXL;        // signed pixels from the centre line of the arch
+vector4 n0 = p@C;
+vector2 t = set(n0.x - 0.5, n0.y - 0.5) * 2.0;
+float r = clamp(sd / %f, -1.0, 1.0);
+float wround = (1.0 - smooth(%f - 0.4, %f + 1.2, abs(sd))) * %f;      // the whole band plus a short shoulder
+t = lerp(t, g * (r * %f), clamp(wround, 0.0, 1.0));
+''' % (HW, HW, HW, mix, mag)
+new = head + body + joint
+n9.parm('vexsnippet').set(new)

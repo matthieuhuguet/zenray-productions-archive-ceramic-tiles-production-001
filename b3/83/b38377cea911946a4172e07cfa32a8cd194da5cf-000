@@ -1,0 +1,38 @@
+# 1 October 2026 : patch (idempotent). Creates the LOP cameras (six since storyboard v2, square picture) of the commercial (/cameras/ad_shot0, ad_shot1, ad_shot2) from Scripts/AdShots.py (the shots are DATA there), with keyframes every 4 frames and cubic interpolation, in the frame range of their shot
+# (shot k = frames 1 + 120 k .. 120 (k + 1) at 24 fps). The Karma camera follows the HDA switch: /cameras/ad_shot<shot>. The plane camera cg_camera and the sphere camera are untouched. FR : les trois cameras de la pub, avec images cles.
+import hou, runpy
+B = '/Users/zenray/Create/Build/Productions/ZenRayHoudini/CeramicTiles/'
+A = runpy.run_path(B + 'Scripts/AdShots.py')
+pose, SF, HAP, VAP, SHOTS = A['pose'], A['SHOT_FRAMES'], A['HAP'], A['VAP'], A['SHOTS']
+st = hou.node('/stage'); net = hou.node('/obj/CeramicGreen_Height')
+prev = st.node('cg_camera_wide') or st.node('cg_camera')
+STEP = 4
+def key(parm, frame, value, interp='cubic()'):
+    k = hou.Keyframe(); k.setFrame(frame); k.setValue(value); k.setExpression(interp, hou.exprLanguage.Hscript); parm.setKeyframe(k)
+for k in SHOTS:
+    name = 'cg_ad_shot%d' % k
+    cam = st.node(name)
+    if cam is None:
+        cam = st.createNode('camera', name)
+        for dst in list(prev.outputs()):
+            if dst == cam: continue
+            for i, x in enumerate(dst.inputs()):
+                if x == prev: dst.setInput(i, cam)
+        cam.setInput(0, prev)
+    prev = cam
+    cam.parm('primpath').set('/cameras/ad_shot%d' % k)
+    for pn, v in (('horizontalAperture', HAP), ('verticalAperture', VAP), ('rz', 0.0), ('projection', 'perspective')):
+        if cam.parm(pn) is not None: cam.parm(pn).set(v)
+    cam.parm('clippingRange1').set(0.05); cam.parm('clippingRange2').set(60.0)
+    for pn in ('tx', 'ty', 'tz', 'rx', 'ry', 'focalLength', 'focusDistance', 'fStop'): cam.parm(pn).deleteAllKeyframes()
+    f0 = 1 + SF * k; frames = list(range(f0, f0 + SF, STEP)) + [f0 + SF - 1]; interp = 'cubic()'
+    if SHOTS[k]['kind'] == 'cut':      # hard cuts: a key on the last frame before the cut and one on the first frame after it, linear, so no frame lies in between (no transition)
+        frames = sorted(set([f0, f0 + SF - 1] + [f0 + c + d for c in SHOTS[k]['cuts'] for d in (-1, 0)])); interp = 'linear()'
+    for f in frames:
+        p = pose(k, (f - f0) / (SF - 1))
+        key(cam.parm('tx'), f, p['eye'][0], interp); key(cam.parm('ty'), f, p['eye'][1], interp); key(cam.parm('tz'), f, p['eye'][2], interp)
+        key(cam.parm('rx'), f, p['rx'], interp); key(cam.parm('ry'), f, p['ry'], interp)
+        key(cam.parm('focalLength'), f, p['focal'], interp); key(cam.parm('focusDistance'), f, p['focus'], interp); key(cam.parm('fStop'), f, p['fstop'], interp)
+kp = st.node('cg_karma')
+kp.parm('camera').setExpression("'/cameras/ad_shot%d' % hou.node('/obj/CeramicGreen_Height').parm('shot').evalAsInt()", hou.exprLanguage.Python)
+st.layoutChildren()

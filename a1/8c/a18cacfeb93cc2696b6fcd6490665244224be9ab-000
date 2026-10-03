@@ -1,0 +1,49 @@
+# 2 October 2026 : shared helpers of the VARIANT work (Matthieu, 2 October 2026: "le meme graph mais changeable dans le HDA du cop", trois autres motifs 01b, 02a, 02b). Imported by hython scripts; no Houdini state is kept here.
+# HDA rule of the project: 8 parameters at most per folder, defaults reproduce the measured result, a parameter that is already there is never overwritten (the work of the user in the hip survives a rebuild). FR : aides communes aux variantes.
+import hou
+B = '/Users/zenray/Create/Build/Productions/ZenRayHoudini/CeramicTiles/'
+NETPATH = '/obj/CeramicGreen_Height'
+MAPS = ('height', 'normal', 'basecolor', 'roughness', 'ao', 'reflect')                      # order of FINAL_1..FINAL_6
+FINAL = {'height': 'FINAL_1_HEIGHT', 'normal': 'FINAL_2_NORMAL', 'basecolor': 'FINAL_3_BASECOLOR', 'roughness': 'FINAL_4_ROUGHNESS', 'ao': 'FINAL_5_AO', 'reflect': 'FINAL_6_REFLECT'}
+def net(): return hou.node(NETPATH)
+def add_folder(folder, specs, parent_after=None):
+    """specs: list of dicts {name, label, kind: 'float'|'int'|'menu', default, range:(lo,hi), menu:[labels], help}. At most 8. Idempotent: existing parameters keep their value."""
+    assert len(specs) <= 8, 'HDA rule: 8 parameters at most per folder (%s has %d)' % (folder, len(specs))
+    n = net(); g = n.parmTemplateGroup(); have = {p.name() for p in n.parms()}
+    new = []
+    for s in specs:
+        if s['name'] in have: continue
+        k = s.get('kind', 'float')
+        if k == 'float': t = hou.FloatParmTemplate(s['name'], s['label'], 1, default_value=(s['default'],), min=s['range'][0], max=s['range'][1], help=s.get('help', ''))
+        elif k == 'int': t = hou.IntParmTemplate(s['name'], s['label'], 1, default_value=(s['default'],), min=s['range'][0], max=s['range'][1], help=s.get('help', ''))
+        else: t = hou.MenuParmTemplate(s['name'], s['label'], menu_items=tuple(str(i) for i in range(len(s['menu']))), menu_labels=tuple(s['menu']), default_value=s['default'], help=s.get('help', ''))
+        new.append(t)
+    if not new: return 0
+    f = g.findFolder(folder)
+    if f is None:
+        f = hou.FolderParmTemplate(folder.lower().replace(' ', '_'), folder, folder_type=hou.folderType.Tabs); f.setParmTemplates(new); g.append(f)
+    else:
+        existing = list(f.parmTemplates()); assert len(existing) + len(new) <= 8, 'HDA rule: %s would exceed 8 parameters' % folder
+        for t in new: g.appendToFolder(f, t)
+    n.setParmTemplateGroup(g); return len(new)
+def wrangle(name, code, inputs, pos, color=None):
+    """create or update a COP wrangle; inputs = list of nodes (None = unwired)."""
+    n = net(); w = n.node(name) or n.createNode('wrangle', name)
+    w.parm('vexsnippet').set(code)
+    for i, src in enumerate(inputs): w.setInput(i, src)
+    w.setPosition(hou.Vector2(*pos));
+    if color: w.setColor(hou.Color(color))
+    return w
+def node(kind, name, inputs, pos, color=None, **parms):
+    n = net(); x = n.node(name) or n.createNode(kind, name)
+    for k, v in parms.items(): x.parm(k).set(v)
+    for i, src in enumerate(inputs): x.setInput(i, src)
+    x.setPosition(hou.Vector2(*pos));
+    if color: x.setColor(hou.Color(color))
+    return x
+
+def set_defaults(specs):
+    """development helper: put every parameter of the specs back to its default value (the final HDA never does this)."""
+    n = net()
+    for s in specs:
+        if n.parm(s['name']) is not None: n.parm(s['name']).set(s['default'])

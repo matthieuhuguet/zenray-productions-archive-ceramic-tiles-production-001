@@ -1,0 +1,66 @@
+# 1 October 2026 : patch for the fused graph. ONE wrangle after the contact shadow that matches the golden band and its fringe to 01a, from MEASURED tables (ref-maps/band_match.json, made by comparing the render with 01a by signed distance to the arch):
+#  band  : the flat clay colour was identical everywhere, 01a's band follows the light (bright centre left, dim right and bottom): quadratic gain surface fitted on 64 cells, chroma R/G 0.917 and B/G 1.139, plus mottling (relative std 0.49 in 01a against 0.26 here)
+#  fringe: 6 to 18 px from the arch the render was 1.4 to 2.0 times too dark and too saturated (a dark green ring): table of ratios ref/render per pixel of distance
+# Hairlines (3.4 to 5.8 px) and the glaze beyond 19 px are untouched. FR : correction mesuree de la bande doree et de sa frange.
+import hou, json
+B = '/Users/zenray/Create/Build/Productions/ZenRayHoudini/CeramicTiles/'
+net = hou.node('/obj/CeramicGreen_Height')
+D = json.load(open(B + 'ref-maps/band_match.json'))
+zl = net.node('ZL_albedo__contact_shadow_beside_the_ridge')
+code = zl.parm('vexsnippet').eval(); head = code[:code.index('float band = ')]
+cf = D['fit']['coef']; ring = D['ring']; cell = [x for row in D.get('cell', [[1.0] * 8] * 8) for x in row]
+arr = lambda nm, v: 'float %s[] = {%s};\n' % (nm, ', '.join('%.4f' % x for x in v))
+body = arr('CELL', cell) + arr('RR', ring[0]) + arr('RG', ring[1]) + arr('RB', ring[2]) + '''
+vector c = set(p@C.x, p@C.y, p@C.z);
+float xn = @P.x * 0.5 + 0.5; float yn = 0.5 - @P.y * 0.5;
+float fx = clamp(xn * 8.0 - 0.5, 0.0, 7.0); float fy = clamp(yn * 8.0 - 0.5, 0.0, 7.0);
+int cx = min(int(fx), 6); int cy = min(int(fy), 6); float tx = fx - cx; float ty = fy - cy;
+float cellgain = lerp(lerp(CELL[cy * 8 + cx], CELL[cy * 8 + cx + 1], tx), lerp(CELL[(cy + 1) * 8 + cx], CELL[(cy + 1) * 8 + cx + 1], tx), ty);
+float gain = cellgain * exp(%f + %f * xn + %f * yn + %f * xn * xn + %f * xn * yn + %f * yn * yn);
+vector chroma = set(%f, 1.0, %f);
+float n1 = (noise(set(@P.x * 20.0, @P.y * 20.0, 11.3)) - 0.5) / 0.103;
+float n2 = (noise(set(@P.x * 140.0, @P.y * 140.0, 17.1)) - 0.5) / 0.103;
+float n3 = (noise(set(@P.x * 420.0, @P.y * 420.0, 23.7)) - 0.5) / 0.103;
+// streaks ALONG the arch: the tangent comes from the gradient of the distance to the arch (as in N9), noise is stretched along it
+float ge = PXL;
+float gux = dist_at(LT01A, LC01A, tc, tr, u + ge, v, RAD, MODE) - dist_at(LT01A, LC01A, tc, tr, u - ge, v, RAD, MODE);
+float gvy = dist_at(LT01A, LC01A, tc, tr, u, v + ge, RAD, MODE) - dist_at(LT01A, LC01A, tc, tr, u, v - ge, RAD, MODE);
+vector2 gd = set(gux, gvy); float gln = length(gd); if (gln > 1e-6) gd /= gln; else gd = set(1.0, 0.0);
+float along = @P.x * (-gd.y) + @P.y * gd.x;
+float s1 = (noise(set(along * 18.0, dpx * 0.16, 5.5)) - 0.5) / 0.103;
+float s2 = (noise(set(along * 70.0, dpx * 0.50, 9.1)) - 0.5) / 0.103;
+float mott = clamp(1.0 + MOTTLE * (0.75 * s1 + 0.75 * s2 + 0.35 * n3 + 0.15 * n1), 0.55, 1.5);
+float wband = 1.0 - smooth(3.4, 4.2, dpx);
+c = lerp(c, c * gain * chroma * mott, wband);
+float t = clamp(dpx, 0.0, 19.99); int i0 = int(t); float f = t - i0;
+vector ratio = set(lerp(RR[i0], RR[i0 + 1], f), lerp(RG[i0], RG[i0 + 1], f), lerp(RB[i0], RB[i0 + 1], f));
+float wring = smooth(5.6, 6.6, dpx) * (1.0 - smooth(18.0, 19.9, dpx));
+c = lerp(c, c * ratio, wring);
+// brighter, slightly wider cream hairline on both edges of the band (the render lost the 1 px line in the texture filter)
+float hair2 = exp(-pow((dpx - 4.9) / 0.62, 2.0));
+c = lerp(c, set(1.0, 0.80, 0.78) * min(1.0, 0.85 + 0.2 * pow(gain, 0.7)), 0.30 * hair2);      // the key light is tinted (0.82, 1.0, 0.88): a cream texture would render pale green, hence the lower G and B
+// clumped rust fringe: 2 x 2 px specks, dense against the band and fading over about 10 px, clustered by a slow noise like the broken streaks of 01a
+float clump = smooth(0.30, 0.70, noise(set(@P.x * 55.0, @P.y * 55.0, 31.1)));
+float rr = rand(set(floor((@P.x + 1.0) * 480.0), floor((@P.y + 1.0) * 480.0) + 7.0));
+float pr = RUSTP * exp(-max(dpx - 5.8, 0.0) / 6.0) * (0.25 + 0.75 * clump) * smooth(5.4, 6.2, dpx) * (1.0 - smooth(15.0, 19.0, dpx));
+if (rr < pr) c = lerp(c, set(0.60, 0.30, 0.15) * (0.75 + 0.5 * rand(set(floor((@P.x + 1.0) * 480.0) + 3.0, floor((@P.y + 1.0) * 480.0)))), 0.9);
+c = clamp(c, 0.0, 1.0);
+p@C = set(c.x, c.y, c.z, p@C.w);
+''' % (cf[0], cf[1], cf[2], cf[3], cf[4], cf[5], D['fit']['chromaR'], D['fit']['chromaB'])
+body = body.replace('MOTTLE', '%.3f' % float(globals().get('PATCH_MOTTLE', 0.50))).replace('RUSTP', '%.3f' % float(globals().get('PATCH_RUST', 0.55)))
+name = 'ZM_albedo__band_gain_mottle_and_fringe_match'
+zm = net.node(name) or net.createNode('wrangle', name)
+zm.parm('vexsnippet').set(head + body)
+if zm.inputs() == () or zm.inputs()[0] is None:
+    for dst in zl.outputs():
+        if dst == zm: continue
+        for i, inp in enumerate(dst.inputs()):
+            if inp == zl: dst.setInput(i, zm)
+    zm.setInput(0, zl); zm.setPosition(zl.position() + hou.Vector2(0, -1)); zm.setColor(hou.Color((0.80, 0.55, 0.35)))
+zm.bypass(not bool(globals().get('PATCH_BAND', True)))
+
+# attenuate the cream hairline painted by ZI (V12): 01a's hairline is a soft highlight on the rounded edge, not a painted line (idempotent)
+zi = net.node('ZI_albedo__clean_cut_arches_and_joints')
+zc = zi.parm('vexsnippet').eval()
+if 'c = lerp(c, set(' in zc and ', hair);' in zc and '0.50 * hair' not in zc:
+    zi.parm('vexsnippet').set(zc.replace(', hair);', ', 0.50 * hair);', 1))
