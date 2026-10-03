@@ -1,0 +1,8 @@
+# render/ : what is where (30 September 2026)
+
+- `CeramicGreen_V6_{height,normal,basecolor,roughness,ao}.png` : the five CURRENT maps exported by the Copernicus graph (overwritten at each export; the history of images is in `../versions/`).
+- `float/` : float32 TIFF exports used by the measures (true arc distance dd, edge distance).
+- `frames/` : Karma frames and lit previews (`rendered_frame_001..004`, `karma`, `lit`).
+- `compare/` : side by side strips made by `Scripts/CompareToRefMap.py` (reference left, mine right).
+- `_archive/old_versions` : maps of V1 to V5. `_archive/tries` : every intermediate try and tune render. `_archive/probes` : field probes and node probes.
+- Measures with numbers and the magenta / green geometry screens are NOT here : they are in `../measures/M<N>_<label>/` with a `report.md`, and `../measures/HISTORY.md` lists every run.
