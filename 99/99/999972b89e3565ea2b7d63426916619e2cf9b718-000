@@ -1,0 +1,4 @@
+import unreal
+v = open('/tmp/_nanite.txt').read().strip() == 'on'
+m = unreal.EditorAssetLibrary.load_asset('/Game/ZenRayShards/Meshes/CeramicAd/SM_CeramicAdSphere'); ns = m.get_editor_property('nanite_settings'); ns.enabled = v; m.set_editor_property('nanite_settings', ns); unreal.EditorAssetLibrary.save_loaded_asset(m)
+print('nanite', v)

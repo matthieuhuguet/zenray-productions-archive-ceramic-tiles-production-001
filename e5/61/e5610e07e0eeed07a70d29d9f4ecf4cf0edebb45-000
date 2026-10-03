@@ -1,0 +1,11 @@
+# 1 October 2026 : stops the Movie Render Queue job in progress and the PIE session (runs in the editor through the queue)
+import unreal
+sub = unreal.get_editor_subsystem(unreal.MoviePipelineQueueSubsystem)
+try:
+    ex = sub.get_active_executor()
+    print('active executor', ex)
+    if ex: ex.cancel_all_jobs()
+except Exception as e: print('cancel failed', e)
+try: unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).editor_request_end_play()
+except Exception as e: print('end play failed', e)
+print('is rendering', sub.is_rendering())

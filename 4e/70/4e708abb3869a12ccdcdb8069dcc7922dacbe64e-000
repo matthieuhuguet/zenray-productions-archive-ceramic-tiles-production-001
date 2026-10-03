@@ -1,0 +1,28 @@
+# 1 October 2026 : runs in the ZenRayShards editor (queue). Starts a MOVIE RENDER QUEUE job on LS_CeramicAd as described by unreal/render_job.json: {"start": first Houdini frame, "end": last Houdini frame INCLUDED, "res": square size, "spatial": spatial samples, "temporal": temporal samples,
+# "warmup": render warm-up frames, "out": output folder, "cvars": {name: value}}. Output: PNG files ad_<Houdini frame, 4 digits>.png (the sequence frame is the Houdini frame minus one, the output offset adds it back), the same names as the Houdini renders.
+# The job renders in the editor (PIE executor) and this script returns at once: poll the output folder. Never launches the editor with -ExecutePythonScript (project rule). FR : lance un rendu Movie Render Queue de la sequence.
+import unreal, json
+PROJ = '/Users/zenray/.claude/tmp/tmp-houdini-september-2026/tmp-materials-substance-copernicus-30-09-2026/unreal/'
+P = json.load(open(PROJ + 'ue_params.json')); J = json.load(open(PROJ + 'render_job.json'))
+# the job must render THE COMMERCIAL LEVEL, whatever level the editor has open (a restarted editor reopens L_Level1, the game level: 44 frames of the wrong scene were rendered on 1 October 2026 before this check existed)
+les = unreal.get_editor_subsystem(unreal.LevelEditorSubsystem)
+if unreal.EditorLevelLibrary.get_editor_world().get_name() != P['level'].rsplit('/', 1)[1]: les.load_level(P['level'])
+world = unreal.EditorLevelLibrary.get_editor_world(); assert world.get_name() == P['level'].rsplit('/', 1)[1], 'wrong level open: ' + world.get_name()
+assert len([a for a in unreal.get_editor_subsystem(unreal.EditorActorSubsystem).get_all_level_actors() if a.get_actor_label().startswith('AdCamShot')]) == 6, 'the six cameras are not in the level'
+sub = unreal.get_editor_subsystem(unreal.MoviePipelineQueueSubsystem); queue = sub.get_queue(); queue.delete_all_jobs()
+job = queue.allocate_new_job(unreal.MoviePipelineExecutorJob); job.sequence = unreal.SoftObjectPath(P['sequence'])
+job.map = unreal.SoftObjectPath(world.get_path_name().split('.')[0] + '.' + world.get_name()); job.job_name = 'CeramicAd'
+cfg = job.get_configuration()
+out = cfg.find_or_add_setting_by_class(unreal.MoviePipelineOutputSetting)
+out.output_resolution = unreal.IntPoint(J['res'], J['res']); out.output_directory = unreal.DirectoryPath(J['out']); out.file_name_format = 'ad_{frame_number}'
+out.zero_pad_frame_numbers = 4; out.frame_number_offset = 1; out.override_existing_output = True
+out.use_custom_playback_range = True; out.custom_start_frame = J['start'] - 1; out.custom_end_frame = J['end']          # end is exclusive in sequence frames
+cfg.find_or_add_setting_by_class(unreal.MoviePipelineDeferredPassBase); cfg.find_or_add_setting_by_class(unreal.MoviePipelineImageSequenceOutput_PNG)
+aa = cfg.find_or_add_setting_by_class(unreal.MoviePipelineAntiAliasingSetting)
+aa.override_anti_aliasing = True; aa.anti_aliasing_method = unreal.AntiAliasingMethod.AAM_NONE; aa.spatial_sample_count = J['spatial']; aa.temporal_sample_count = J['temporal']
+aa.render_warm_up_count = J.get("warmup", 8); aa.engine_warm_up_count = J.get("warmup", 8); aa.use_camera_cut_for_warm_up = True
+if J.get('cvars'):
+    cv = cfg.find_or_add_setting_by_class(unreal.MoviePipelineConsoleVariableSetting)
+    for k, v in J['cvars'].items(): cv.add_or_update_console_variable(k, v)
+sub.render_queue_with_executor(unreal.MoviePipelinePIEExecutor)
+print('render started', J)

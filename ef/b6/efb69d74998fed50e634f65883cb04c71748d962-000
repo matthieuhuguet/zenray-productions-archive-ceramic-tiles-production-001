@@ -1,0 +1,12 @@
+# 1 October 2026 : runs in the editor (queue). Imports unreal/AxisTest.fbx (box x 0..1, y 0..2, z 0..3 m in Houdini) and prints the bounds: which Unreal axis got which Houdini axis and with which sign.
+import unreal
+PROJ = '/Users/zenray/.claude/tmp/tmp-houdini-september-2026/tmp-materials-substance-copernicus-30-09-2026/unreal/'
+DEST = '/Game/ZenRayShards/Meshes/CeramicAd'
+tools = unreal.AssetToolsHelpers.get_asset_tools()
+t = unreal.AssetImportTask(); t.filename = PROJ + 'AxisTest.fbx'; t.destination_path = DEST; t.destination_name = 'SM_AxisTest'; t.automated = True; t.replace_existing = True; t.save = True
+ui = unreal.FbxImportUI(); ui.import_materials = False; ui.import_textures = False; ui.import_animations = False; t.options = ui
+tools.import_asset_tasks([t])
+m = unreal.EditorAssetLibrary.load_asset(DEST + '/SM_AxisTest')
+b = m.get_bounds()
+print('origin', b.origin, 'extent', b.box_extent)
+bx = m.get_bounding_box(); print('min', bx.min, 'max', bx.max)

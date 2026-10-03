@@ -1,0 +1,7 @@
+import unreal
+eas = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
+for a in eas.get_all_level_actors():
+    l = a.get_actor_label()
+    if l.startswith('AdSphere'):
+        c = a.static_mesh_component; m = c.get_material(0); loc = a.get_actor_location()
+        print(l, 'x=%.0f y=%.0f' % (loc.x, loc.y), m.get_name() if m else None, 'tex', m.get_texture_parameter_value('BaseColorTexture') if hasattr(m, 'get_texture_parameter_value') else '?')

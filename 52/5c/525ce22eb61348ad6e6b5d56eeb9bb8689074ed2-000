@@ -1,0 +1,17 @@
+# experiment (1 October 2026): swaps the material of the green sphere of set S4 for an UNLIT albedo view (emissive = base colour texture x multiplier) or back to the ceramic instance, per /tmp/_albedo.txt (on/off)
+import unreal
+eal = unreal.EditorAssetLibrary; mel = unreal.MaterialEditingLibrary; tools = unreal.AssetToolsHelpers.get_asset_tools()
+D = '/Game/ZenRayShards/Materials/CeramicAd'; on = open('/tmp/_albedo.txt').read().strip() == 'on'
+sp = [a for a in unreal.get_editor_subsystem(unreal.EditorActorSubsystem).get_all_level_actors() if a.get_actor_label() == 'AdSpheres40Green'][0]
+if on:
+    if eal.does_asset_exist(D + '/M_DebugAlbedo'): eal.delete_asset(D + '/M_DebugAlbedo')
+    m = tools.create_asset('M_DebugAlbedo', D, unreal.Material, unreal.MaterialFactoryNew())
+    t = mel.create_material_expression(m, unreal.MaterialExpressionTextureSample, -600, 0); t.set_editor_property('texture', eal.load_asset(D + '/T_CeramicAdBaseColorGreen')); t.set_editor_property('sampler_type', unreal.MaterialSamplerType.SAMPLERTYPE_COLOR)
+    c = mel.create_material_expression(m, unreal.MaterialExpressionConstant3Vector, -600, 200); c.set_editor_property('constant', unreal.LinearColor(0.03526, 0.04059, 0.02296, 1.0))
+    mu = mel.create_material_expression(m, unreal.MaterialExpressionMultiply, -300, 100); mel.connect_material_expressions(t, 'RGB', mu, 'A'); mel.connect_material_expressions(c, '', mu, 'B')
+    k = mel.create_material_expression(m, unreal.MaterialExpressionConstant, -300, 300); k.set_editor_property('r', 30.0)
+    mu2 = mel.create_material_expression(m, unreal.MaterialExpressionMultiply, -100, 150); mel.connect_material_expressions(mu, '', mu2, 'A'); mel.connect_material_expressions(k, '', mu2, 'B')
+    assert mel.connect_material_property(mu2, '', unreal.MaterialProperty.MP_EMISSIVE_COLOR); mel.recompile_material(m); eal.save_loaded_asset(m)
+    sp.static_mesh_component.set_material(0, m)
+else: sp.static_mesh_component.set_material(0, eal.load_asset(D + '/MI_CeramicAdGreen'))
+print('albedo view', on)

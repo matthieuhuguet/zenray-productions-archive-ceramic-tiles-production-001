@@ -1,0 +1,8 @@
+# experiment (1 October 2026): hides the actors whose label starts with one of the prefixes in /tmp/_hide.txt (comma separated), shows all the others of the commercial
+import unreal
+pre = [p for p in open('/tmp/_hide.txt').read().strip().split(',') if p]
+for a in unreal.get_editor_subsystem(unreal.EditorActorSubsystem).get_all_level_actors():
+    l = a.get_actor_label()
+    if l.startswith('AdSphere') or l.startswith('AdCyclorama') or l.startswith('AdPlane'):
+        h = any(l.startswith(p) for p in pre); a.set_actor_hidden_in_game(h); a.set_is_temporarily_hidden_in_editor(h)
+print('hidden prefixes', pre)

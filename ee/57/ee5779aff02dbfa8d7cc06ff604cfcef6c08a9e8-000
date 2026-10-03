@@ -1,0 +1,7 @@
+# experiment (1 October 2026): keeps only the studio lights whose role is in /tmp/_roles.txt (comma separated: Key, Fill, RimA, RimB) lit, in every set
+import unreal
+roles = open('/tmp/_roles.txt').read().strip().split(',')
+for a in unreal.get_editor_subsystem(unreal.EditorActorSubsystem).get_all_level_actors():
+    l = a.get_actor_label()
+    if l.startswith('AdLight'): a.light_component.set_visibility(any(l.endswith(r) for r in roles if r))
+print('roles on', roles)

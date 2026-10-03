@@ -1,0 +1,82 @@
+{
+ "planes": {
+  "green": [
+   -420.0,
+   0.0,
+   0.0
+  ],
+  "multi": [
+   0.0,
+   0.0,
+   0.0
+  ],
+  "teal": [
+   420.0,
+   0.0,
+   0.0
+  ]
+ },
+ "sets": {
+  "planes": [
+   0.0,
+   0.0,
+   0.0
+  ],
+  "s3": [
+   0.0,
+   -6000.0,
+   0.0
+  ],
+  "s4": [
+   0.0,
+   -12000.0,
+   0.0
+  ],
+  "s5": [
+   0.0,
+   -18000.0,
+   0.0
+  ]
+ },
+ "materials": {
+  "green": {
+   "multiplier": [
+    0.03525999999999999,
+    0.04059,
+    0.022959999999999998
+   ],
+   "normal_scale": 2.0
+  },
+  "multi": {
+   "multiplier": [
+    0.12176999999999999,
+    0.12176999999999999,
+    0.12176999999999999
+   ],
+   "normal_scale": 2.0
+  },
+  "teal": {
+   "multiplier": [
+    0.12176999999999999,
+    0.12176999999999999,
+    0.12176999999999999
+   ],
+   "normal_scale": 2.0
+  }
+ },
+ "houdini_studio_defaults": {
+  "light_rig": 1,
+  "studio_key": 10.5,
+  "studio_fill": 8.0,
+  "studio_rim": 10.5,
+  "studio_cyc": -4.0,
+  "studio_softness": 1.6,
+  "studio_azimuth": 0.0,
+  "studio_gloss": 0.08
+ },
+ "glaze_tint": 0.41,
+ "fps": 24,
+ "shot_frames": 120,
+ "sphere_radius_cm": 110.00000000000001,
+ "plane_size_cm": 400.0
+}

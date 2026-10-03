@@ -1,0 +1,6 @@
+import unreal
+for a in unreal.get_editor_subsystem(unreal.EditorActorSubsystem).get_all_level_actors():
+    l = a.get_actor_label()
+    if l.startswith('AdLightS4'):
+        c = a.light_component
+        print(l, 'color', c.get_editor_property('light_color'), 'temp', c.get_editor_property('temperature'), 'use_temp', c.get_editor_property('use_temperature'), 'cd', round(c.get_editor_property('intensity'), 1), 'spec', c.get_editor_property('specular_scale'), 'diff', c.get_editor_property('diffuse_scale') if hasattr(c, 'get_editor_property') else '?', 'wh', c.get_editor_property('source_width'), c.get_editor_property('source_height'), 'vis', c.is_visible())

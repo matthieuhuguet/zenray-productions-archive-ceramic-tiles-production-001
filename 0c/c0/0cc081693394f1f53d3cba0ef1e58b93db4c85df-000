@@ -1,0 +1,83 @@
+{
+  "note": "1 October 2026 : the ONE place where the Unreal version of the commercial is tuned (rule I-08). Lengths in centimetres, angles in degrees. The light exposures keep the meaning and the values of the Houdini folder 'HDA Light' (studio_key 10.5, studio_fill 8.0, studio_rim 10.5 stops, power normalised: the intensity does not change with the size of the box); cd_per_unit converts 2^stops into candelas and is calibrated against the Houdini frames (median luminance); exposure_ev is the manual exposure compensation of the post process volume.",
+  "exposure_ev": -2.69,
+  "cd_per_unit": 4.0,
+  "lights": {
+    "softness": 1.6,
+    "azimuth": 0.0,
+    "stops": {
+      "key": 10.5,
+      "fill": 8.0,
+      "rim": 10.5
+    },
+    "key": {
+      "az": -40.0,
+      "el": 50.0,
+      "dist_cm": 600.0,
+      "w_cm": 260.0,
+      "h_cm": 260.0
+    },
+    "fill": {
+      "az": 62.0,
+      "el": 36.0,
+      "dist_cm": 650.0,
+      "w_cm": 340.0,
+      "h_cm": 340.0
+    },
+    "rimA": {
+      "az": 148.0,
+      "el": 24.0,
+      "dist_cm": 650.0,
+      "w_cm": 70.0,
+      "h_cm": 450.0
+    },
+    "rimB": {
+      "az": -148.0,
+      "el": 24.0,
+      "dist_cm": 650.0,
+      "w_cm": 70.0,
+      "h_cm": 450.0
+    },
+    "attenuation_cm": 4000.0,
+    "tint": [
+      0.82,
+      1.0,
+      0.88
+    ],
+    "aim_height_cm": 30.0,
+    "gloss_specular_scale": 0.08,
+    "rim_specular_scale": 0.0
+  },
+  "cyclorama": {
+    "tone_stops": -4.0,
+    "albedo": 0.16,
+    "roughness": 0.55,
+    "floor_offset_cm": -1.0
+  },
+  "ambient_sky": {
+    "intensity": 0.02
+  },
+  "post": {
+    "tone_curve_amount": 0.0,
+    "bloom_intensity": 0.0,
+    "lens_flare_intensity": 0.0,
+    "film_grain_intensity": 0.0,
+    "motion_blur_amount": 0.0,
+    "local_exposure_highlight_contrast_scale": 1.0,
+    "local_exposure_shadow_contrast_scale": 1.0,
+    "ambient_occlusion_intensity": 0.0
+  },
+  "lumen": {
+    "scene_lighting_quality": 4.0,
+    "scene_detail": 4.0,
+    "final_gather_quality": 4.0,
+    "reflection_quality": 4.0,
+    "max_trace_distance": 20000.0,
+    "max_reflection_bounces": 3,
+    "max_roughness_to_trace_reflections": 0.6,
+    "scene_lighting_update_speed": 4.0,
+    "final_gather_lighting_update_speed": 4.0
+  },
+  "level": "/Game/ZenRayShards/Levels/L_CeramicAd",
+  "sequence": "/Game/ZenRayShards/Cinematics/LS_CeramicAd"
+}

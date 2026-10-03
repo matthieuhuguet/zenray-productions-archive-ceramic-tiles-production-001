@@ -1,0 +1,12 @@
+# 1 October 2026 : lists the actors of the commercial level with their class, location, hidden flag and material of the first slot (read only). Run through Scripts/UeQueue.py. FR : liste les acteurs du niveau de la pub (lecture seule).
+import unreal
+eas = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
+les = unreal.get_editor_subsystem(unreal.LevelEditorSubsystem)
+print('level', unreal.EditorLevelLibrary.get_editor_world().get_name())
+for a in sorted(eas.get_all_level_actors(), key=lambda x: x.get_actor_label()):
+    l = a.get_actor_label()
+    if not l.startswith('Ad'): continue
+    info = [l, a.get_class().get_name(), [round(v) for v in (a.get_actor_location().x, a.get_actor_location().y, a.get_actor_location().z)], 'hidden' if a.is_hidden_ed() or a.get_editor_property('hidden') else 'visible']
+    if isinstance(a, unreal.StaticMeshActor):
+        m = a.static_mesh_component.get_material(0); info.append(m.get_path_name() if m else None)
+    print(info)

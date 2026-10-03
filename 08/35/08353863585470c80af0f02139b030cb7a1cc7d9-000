@@ -1,0 +1,5 @@
+import unreal
+eal = unreal.EditorAssetLibrary
+for p in ('/Game/ZenRayShards/Meshes/CeramicAd/SM_AxisTest',):
+    if eal.does_asset_exist(p) and not unreal.AssetRegistryHelpers.get_asset_registry().get_referencers(unreal.EditorAssetLibrary.find_asset_data(p).package_name, unreal.AssetRegistryDependencyOptions(include_soft_package_references=True, include_hard_package_references=True)):
+        print('deleted unused test asset', p, eal.delete_asset(p))

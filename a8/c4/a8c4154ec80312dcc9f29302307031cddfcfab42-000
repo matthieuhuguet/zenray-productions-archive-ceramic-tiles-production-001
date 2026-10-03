@@ -1,0 +1,1 @@
+import unreal; print('queue alive', unreal.EditorAssetLibrary.does_asset_exist('/Game/ZenRayShards/Materials/CeramicAd/M_CeramicAd'))

@@ -1,0 +1,2 @@
+import unreal
+print('editor world', unreal.EditorLevelLibrary.get_editor_world().get_name())

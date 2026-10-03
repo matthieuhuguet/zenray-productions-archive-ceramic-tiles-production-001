@@ -1,0 +1,15 @@
+# 1 October 2026 : read-only audit, runs in the editor (queue): what the Unreal commercial is made of, whether every asset lives in /Game/ZenRayShards (rule I-02), whether anything is unsaved, and whether the sequence / level are self-contained (no reference outside /Game and /Engine).
+import unreal, os
+eal = unreal.EditorAssetLibrary; reg = unreal.AssetRegistryHelpers.get_asset_registry()
+roots = ['/Game/ZenRayShards/Materials/CeramicAd', '/Game/ZenRayShards/Meshes/CeramicAd', '/Game/ZenRayShards/Levels/L_CeramicAd', '/Game/ZenRayShards/Cinematics/LS_CeramicAd']
+total = 0
+for r in roots:
+    paths = eal.list_assets(r, recursive=True, include_folder=False) if eal.does_directory_exist(r) else ([r] if eal.does_asset_exist(r) else [])
+    print(r, len(paths))
+    for p in paths:
+        total += 1; d = eal.find_asset_data(p); deps = reg.get_dependencies(d.package_name, unreal.AssetRegistryDependencyOptions(include_soft_package_references=True, include_hard_package_references=True))
+        out = [str(x) for x in (deps or []) if not str(x).startswith('/Game/ZenRayShards') and not str(x).startswith('/Engine') and not str(x).startswith('/Script')]
+        print('   ', d.asset_name, d.asset_class_path.asset_name, 'external refs:', out if out else 'none')
+dirty = unreal.EditorLoadingAndSavingUtils.get_dirty_content_packages() if hasattr(unreal.EditorLoadingAndSavingUtils, 'get_dirty_content_packages') else []
+print('assets audited', total, '| dirty content packages', [str(x.get_name()) for x in dirty])
+print('level actors of the commercial', len([a for a in unreal.get_editor_subsystem(unreal.EditorActorSubsystem).get_all_level_actors() if a.get_actor_label().startswith('Ad')]))

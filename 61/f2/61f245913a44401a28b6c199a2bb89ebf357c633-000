@@ -1,0 +1,21 @@
+# 1 October 2026 : runs in the editor (queue). Places a temporary cine camera exactly at the pose of Houdini frame <frame> (unreal/probe.json), puts the spheres of that shot in their pose of that frame, and takes a high resolution screenshot to <out>. A quick look at the Unreal version of any frame without building the sequence. FR : une image de controle d'une image de la pub.
+import unreal, json, math
+PROJ = '/Users/zenray/.claude/tmp/tmp-houdini-september-2026/tmp-materials-substance-copernicus-30-09-2026/unreal/'
+J = json.load(open(PROJ + 'probe.json')); anim = json.load(open(PROJ + 'anim.json')); frame = J['frame']; shot = (frame - 1) // 120; idx = (frame - 1) % 120
+eas = unreal.get_editor_subsystem(unreal.EditorActorSubsystem); V = unreal.Vector
+for a in eas.get_all_level_actors():
+    if a.get_actor_label() == 'AdProbeCam': eas.destroy_actor(a)
+c = anim['cameras'][str(shot)][idx]
+rot = unreal.MathLibrary.make_rotation_from_axes(V(*c['fwd']), V(*c['right']), V(*c['up']))
+cam = eas.spawn_actor_from_class(unreal.CineCameraActor, V(*c['pos']), rot); cam.set_actor_label('AdProbeCam')
+cc = cam.get_cine_camera_component(); fb = cc.get_editor_property('filmback'); fb.sensor_width = 24.0; fb.sensor_height = 24.0; cc.set_editor_property('filmback', fb)
+cc.set_editor_property('current_focal_length', c['focal']); cc.set_editor_property('current_aperture', c['fstop'] if c['fstop'] > 0 else 32.0)
+fs = cc.get_editor_property('focus_settings'); fs.focus_method = unreal.CameraFocusMethod.MANUAL; fs.manual_focus_distance = c['focus_cm']; cc.set_editor_property('focus_settings', fs)
+for a in eas.get_all_level_actors():
+    lab = a.get_actor_label()
+    if lab.startswith('AdSphere'):
+        for sid, d in anim['spheres'].items():
+            if lab.startswith('AdSphere' + sid.replace('_', '')) and d['shot'] == shot:
+                s = d['frames'][idx]; a.set_actor_location(V(*s['pos']), False, False); a.set_actor_rotation(unreal.MathLibrary.make_rotation_from_axes(V(*s['x']), V(*s['z']), V(*s['y'])), False)
+unreal.AutomationLibrary.take_high_res_screenshot(J['res'], J['res'], J['out'], cam)
+print('probe frame', frame, 'shot', shot + 1, 'pos', c['pos'], 'out', J['out'])

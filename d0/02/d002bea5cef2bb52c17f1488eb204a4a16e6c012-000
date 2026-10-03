@@ -1,0 +1,18 @@
+# read-only audit of the cameras, materials and meshes of the commercial (1 October 2026)
+import unreal, json
+eas = unreal.get_editor_subsystem(unreal.EditorActorSubsystem); eal = unreal.EditorAssetLibrary
+for a in sorted(eas.get_all_level_actors(), key=lambda x: x.get_actor_label()):
+    l = a.get_actor_label()
+    if l.startswith('AdCamShot'):
+        c = a.get_cine_camera_component(); fb = c.get_editor_property('filmback'); fs = c.get_editor_property('focus_settings')
+        print(l, 'sensor %.1fx%.1f mm' % (fb.sensor_width, fb.sensor_height), 'focal %.1f' % c.get_editor_property('current_focal_length'), 'f/%.1f' % c.get_editor_property('current_aperture'), 'focus', str(fs.focus_method).split('.')[-1], 'constrain aspect', c.get_editor_property('constrain_aspect_ratio'))
+seq = eal.load_asset('/Game/ZenRayShards/Cinematics/LS_CeramicAd'); ext = unreal.MovieSceneSequenceExtensions
+print('sequence', ext.get_playback_start(seq), ext.get_playback_end(seq), 'fps', ext.get_display_rate(seq).numerator, 'tracks', len(ext.get_tracks(seq)), 'bindings', len(ext.get_bindings(seq)))
+for t in ext.get_tracks(seq):
+    for s in t.get_sections(): print('cut section', s.get_range_start() if hasattr(s, 'get_range_start') else '?', s.get_range_end() if hasattr(s, 'get_range_end') else '?')
+mel = unreal.MaterialEditingLibrary
+for k in ('Green', 'Multi', 'Teal'):
+    mi = eal.load_asset('/Game/ZenRayShards/Materials/CeramicAd/MI_CeramicAd' + k)
+    print('MI', k, 'tex', mi.get_texture_parameter_value('BaseColorTexture').get_name(), 'mult', mi.get_vector_parameter_value('ColorMultiplier'), 'ny', mi.get_scalar_parameter_value('NormalYSign'), 'ns', mi.get_scalar_parameter_value('NormalStrength'), 'coat', mi.get_scalar_parameter_value('CoatWeight'))
+for n in ('SM_CeramicAdPlane', 'SM_CeramicAdSphere', 'SM_CeramicAdCyclorama'):
+    m = eal.load_asset('/Game/ZenRayShards/Meshes/CeramicAd/' + n); b = m.get_bounds(); print(n, 'extent', b.box_extent, 'tris', unreal.StaticMeshEditorSubsystem.get_number_verts(m, 0) if hasattr(unreal, 'StaticMeshEditorSubsystem') else '?')

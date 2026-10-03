@@ -1,0 +1,4 @@
+import unreal
+o = unreal.MoviePipelineOutputSetting(); a = unreal.MoviePipelineAntiAliasingSetting(); c = unreal.MoviePipelineConsoleVariableSetting()
+f = lambda x: [n for n in dir(x) if not n.startswith('_') and n not in dir(unreal.Object)]
+print('OUTPUT', f(o)); print('AA', f(a)); print('CVAR', f(c))

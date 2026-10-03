@@ -1,0 +1,66 @@
+# 1 October 2026 : runs in the ZenRayShards editor (queue). Builds the LEVEL of the Ceramic Tiles commercial: 3 plane objects (green, multicolour, teal) at the Houdini positions, 9 spheres, 4 cycloramas (one per set), the studio rig (key, fill, two rim strips per set, rect lights, Movable: the project forbids baked lighting),
+# an unbound post process volume (manual exposure, Lumen quality), a very dim sky light. Every number comes from unreal/ue_params.json (rule I-08), positions and animation from unreal/rig.json and unreal/anim.json written by Scripts/ExportForUnreal.py.
+# Axis rule (measured 1 October 2026): Houdini (x, y, z) = Unreal (X, Y, Z) = (x, z, y) x 100. Idempotent: every actor of the commercial is labelled Ad... and destroyed before being rebuilt. FR : construit le niveau de la pub (Lumen, lumieres Movable).
+import unreal, json, math
+PROJ = '/Users/zenray/.claude/tmp/tmp-houdini-september-2026/tmp-materials-substance-copernicus-30-09-2026/unreal/'
+P = json.load(open(PROJ + 'ue_params.json')); rig = json.load(open(PROJ + 'rig.json')); anim = json.load(open(PROJ + 'anim.json'))
+TEX_DIR = '/Game/ZenRayShards/Materials/CeramicAd'; MESH_DIR = '/Game/ZenRayShards/Meshes/CeramicAd'
+tools = unreal.AssetToolsHelpers.get_asset_tools(); eal = unreal.EditorAssetLibrary; mel = unreal.MaterialEditingLibrary
+les = unreal.get_editor_subsystem(unreal.LevelEditorSubsystem); eas = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
+if eal.does_asset_exist(P['level']): les.load_level(P['level'])
+else: les.new_level(P['level'])
+for a in eas.get_all_level_actors():
+    if a.get_actor_label().startswith('Ad'): eas.destroy_actor(a)
+V = unreal.Vector
+def load(p): return eal.load_asset(p)
+# ---- cyclorama material: a plain GREY (one parameter, ToneStops: 0 = grey 0.16, -4 = 0.01 like the Houdini rig). The colour goes straight into Base Color, every connection is asserted (a silent failed connection left the floor white, found 1 October 2026)
+cp = TEX_DIR + '/M_CeramicAdCyclorama'
+if eal.does_asset_exist(cp): cm = eal.load_asset(cp); mel.delete_all_material_expressions(cm)      # in place, never delete an asset in use
+else: cm = tools.create_asset('M_CeramicAdCyclorama', TEX_DIR, unreal.Material, unreal.MaterialFactoryNew())
+grey = P['cyclorama']['albedo'] * 2.0 ** P['cyclorama']['tone_stops']
+col = mel.create_material_expression(cm, unreal.MaterialExpressionVectorParameter, -500, 0); col.set_editor_property('parameter_name', 'CycloramaGrey'); col.set_editor_property('default_value', unreal.LinearColor(grey, grey, grey, 1.0))
+rh = mel.create_material_expression(cm, unreal.MaterialExpressionScalarParameter, -500, 200); rh.set_editor_property('parameter_name', 'Roughness'); rh.set_editor_property('default_value', P['cyclorama']['roughness'])
+sp = mel.create_material_expression(cm, unreal.MaterialExpressionConstant, -500, 330); sp.set_editor_property('r', 0.3)
+assert mel.connect_material_property(col, '', unreal.MaterialProperty.MP_BASE_COLOR), 'base color'
+assert mel.connect_material_property(rh, '', unreal.MaterialProperty.MP_ROUGHNESS), 'roughness'
+assert mel.connect_material_property(sp, '', unreal.MaterialProperty.MP_SPECULAR), 'specular'
+cm.set_editor_property('two_sided', False); mel.recompile_material(cm); eal.save_loaded_asset(cm)
+print('cyclorama grey', round(grey, 4), 'connections ok')
+# ---- objects
+INST = {c: load(TEX_DIR + '/MI_CeramicAd' + c.capitalize()) for c in ('green', 'multi', 'teal')}
+plane, sphere, cyc = load(MESH_DIR + '/SM_CeramicAdPlane'), load(MESH_DIR + '/SM_CeramicAdSphere'), load(MESH_DIR + '/SM_CeramicAdCyclorama')
+def mesh_actor(label, asset, loc, mat, movable=False):
+    a = eas.spawn_actor_from_object(asset, V(*loc)); a.set_actor_label(label); a.static_mesh_component.set_material(0, mat)
+    if movable: a.root_component.set_mobility(unreal.ComponentMobility.MOVABLE)
+    return a
+for c in ('green', 'multi', 'teal'): mesh_actor('AdPlane' + c.capitalize(), plane, rig['planes'][c], INST[c])
+for sid, d in anim['spheres'].items():
+    f0 = d['frames'][0]; sa = mesh_actor('AdSphere' + sid.replace('_', '') + d['colour'].capitalize(), sphere, f0['pos'], INST[d['colour']], movable=True); sa.set_actor_scale3d(V(f0['radius_cm'] / 100.0, f0['radius_cm'] / 100.0, f0['radius_cm'] / 100.0))      # the mesh is the unit sphere of 1 m
+for name, c in rig['sets'].items(): mesh_actor('AdCyclorama' + name.capitalize(), cyc, [c[0], c[1], c[2] + P['cyclorama']['floor_offset_cm']], cm)
+# ---- studio rig, per set. Rect lights emit along their local +X: the rotation is a look-at to the centre of the set
+L = P['lights']
+def rect(label, centre, role):
+    d = L[role]; az = math.radians(d['az'] + L['azimuth']); el = math.radians(d['el']); r = d['dist_cm']
+    off = (math.sin(az) * math.cos(el) * r, math.cos(az) * math.cos(el) * r, math.sin(el) * r)       # Houdini (x, z, y) already in Unreal order X, Y, Z
+    pos = V(centre[0] + off[0], centre[1] + off[1], centre[2] + off[2]); aim = V(centre[0], centre[1], centre[2] + L['aim_height_cm'])
+    rot = unreal.MathLibrary.find_look_at_rotation(pos, aim); a = eas.spawn_actor_from_class(unreal.RectLight, pos, rot); a.set_actor_label(label)
+    c = a.light_component; c.set_editor_property('intensity_units', unreal.LightUnits.CANDELAS); c.set_editor_property('intensity', P['cd_per_unit'] * 2.0 ** L['stops']['rim' if role.startswith('rim') else role])
+    c.set_editor_property('source_width', d['w_cm'] * L['softness']); c.set_editor_property('source_height', d['h_cm'] * L['softness'])
+    c.set_editor_property('attenuation_radius', L['attenuation_cm']); enc = [int(round(255 * (1.055 * t ** (1 / 2.4) - 0.055 if t > 0.0031308 else 12.92 * t))) for t in L['tint']]; c.set_editor_property('light_color', unreal.Color(r=enc[0], g=enc[1], b=enc[2], a=255))      # keyword arguments: the positional order of FColor is B, G, R, A      # the tint is LINEAR (Houdini 0.82 / 1.0 / 0.88): a Color is sRGB encoded
+    c.set_editor_property('specular_scale', L['rim_specular_scale'] if role.startswith('rim') else L['gloss_specular_scale'])
+    c.set_editor_property('cast_shadows', True); a.root_component.set_mobility(unreal.ComponentMobility.MOVABLE); return a
+for name, centre in rig['sets'].items():
+    for role in ('key', 'fill', 'rimA', 'rimB'): rect('AdLight%s%s' % (name.capitalize(), role[0].upper() + role[1:]), centre, role)
+# ---- very dim sky light so that nothing reflects pure black, and the post process volume (manual exposure, Lumen quality)
+sl = eas.spawn_actor_from_class(unreal.SkyLight, V(0, 0, 300)); sl.set_actor_label('AdSkyLight'); sl.light_component.set_editor_property('intensity', P['ambient_sky']['intensity']); sl.root_component.set_mobility(unreal.ComponentMobility.MOVABLE)
+sl.light_component.set_editor_property('real_time_capture', True)
+ppv = eas.spawn_actor_from_class(unreal.PostProcessVolume, V(0, 0, 0)); ppv.set_actor_label('AdPostProcess'); ppv.set_editor_property('unbound', True)
+st = ppv.settings; lu = P['lumen']
+def ov(name, value): st.set_editor_property('override_' + name, True); st.set_editor_property(name, value)
+ov('auto_exposure_method', unreal.AutoExposureMethod.AEM_MANUAL); ov('auto_exposure_apply_physical_camera_exposure', False); ov('auto_exposure_bias', P['exposure_ev'])
+ov('dynamic_global_illumination_method', unreal.DynamicGlobalIlluminationMethod.LUMEN); ov('reflection_method', unreal.ReflectionMethod.LUMEN)
+for k, n in (('scene_lighting_quality', 'lumen_scene_lighting_quality'), ('scene_detail', 'lumen_scene_detail'), ('final_gather_quality', 'lumen_final_gather_quality'), ('reflection_quality', 'lumen_reflection_quality'), ('max_trace_distance', 'lumen_max_trace_distance'), ('max_reflection_bounces', 'lumen_max_reflection_bounces'), ('max_roughness_to_trace_reflections', 'lumen_max_roughness_to_trace_reflections'), ('scene_lighting_update_speed', 'lumen_scene_lighting_update_speed'), ('final_gather_lighting_update_speed', 'lumen_final_gather_lighting_update_speed')): ov(n, lu[k])
+# neutral display: no tone curve, bloom, flare, grain, motion blur, local exposure, so that the picture is the plain sRGB of the linear render, like Karma
+for n, v in P['post'].items(): ov(n, v)
+ppv.set_editor_property('settings', st)
+les.save_current_level(); print('level built', P['level'], 'actors', len([a for a in eas.get_all_level_actors() if a.get_actor_label().startswith('Ad')]))

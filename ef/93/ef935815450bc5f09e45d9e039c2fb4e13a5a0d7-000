@@ -1,0 +1,86 @@
+# 1 October 2026 : runs in the ZenRayShards editor (queue). Imports the textures and meshes of the Ceramic Tiles commercial into /Game/ZenRayShards (rule I-02) and builds the master material M_CeramicAd (Clear Coat, every number a parameter, rule I-08)
+# and its three instances MI_CeramicAdGreen / MI_CeramicAdMulti / MI_CeramicAdTeal: ONLY the base colour texture and its multiplier change between them, never the pattern. Idempotent (assets are replaced).
+# Sources: PROJ/render/maps_4096 (the 4096 maps of the Houdini graph) and PROJ/unreal (FBX, rig.json). Texture sampler rules of the project: a texture without sRGB needs a LINEAR sampler or the material fails silently (BUG of 24 September 2026).
+# FR : importe textures et maillages de la pub dans /Game/ZenRayShards et construit le materiau maitre Clear Coat et ses trois instances (seule la couleur change).
+import unreal, json
+PROJ = '/Users/zenray/.claude/tmp/tmp-houdini-september-2026/tmp-materials-substance-copernicus-30-09-2026/'
+TEX_DIR = '/Game/ZenRayShards/Materials/CeramicAd'; MESH_DIR = '/Game/ZenRayShards/Meshes/CeramicAd'
+tools = unreal.AssetToolsHelpers.get_asset_tools(); eal = unreal.EditorAssetLibrary; mel = unreal.MaterialEditingLibrary
+rig = json.load(open(PROJ + 'unreal/rig.json'))
+TEX = {   # asset name: (file, sRGB, compression)
+    'T_CeramicAdBaseColorGreen': ('maps_4096/CeramicGreen_V6_basecolor_green.png', True, unreal.TextureCompressionSettings.TC_DEFAULT),
+    'T_CeramicAdBaseColorMulti': ('maps_4096/CeramicGreen_V6_basecolor_multi.png', True, unreal.TextureCompressionSettings.TC_DEFAULT),
+    'T_CeramicAdBaseColorTeal': ('maps_4096/CeramicGreen_V6_basecolor_teal.png', True, unreal.TextureCompressionSettings.TC_DEFAULT),
+    'T_CeramicAdNormal': ('maps_4096/CeramicGreen_V6_normal.png', False, unreal.TextureCompressionSettings.TC_NORMALMAP),
+    'T_CeramicAdRoughness': ('maps_4096/CeramicGreen_V6_roughness.png', False, unreal.TextureCompressionSettings.TC_MASKS),
+    'T_CeramicAdReflect': ('maps_4096/CeramicGreen_V6_reflect.png', False, unreal.TextureCompressionSettings.TC_MASKS),
+    'T_CeramicAdAmbientOcclusion': ('maps_4096/CeramicGreen_V6_ao.png', False, unreal.TextureCompressionSettings.TC_MASKS),
+    'T_CeramicAdHeight': ('maps_4096/CeramicGreen_V6_height.png', False, unreal.TextureCompressionSettings.TC_MASKS),
+}
+tasks = []
+for name, (f, srgb, comp) in TEX.items():
+    t = unreal.AssetImportTask(); t.filename = PROJ + 'render/' + f; t.destination_path = TEX_DIR; t.destination_name = name; t.replace_existing = True; t.automated = True; t.save = True; tasks.append(t)
+tools.import_asset_tasks(tasks)
+tex = {}
+for name, (f, srgb, comp) in TEX.items():
+    a = eal.load_asset(TEX_DIR + '/' + name); a.set_editor_property('srgb', srgb); a.set_editor_property('compression_settings', comp)
+    a.set_editor_property('mip_gen_settings', unreal.TextureMipGenSettings.TMGS_FROM_TEXTURE_GROUP); eal.save_loaded_asset(a); tex[name] = a
+print('textures', len(tex))
+# meshes: FBX with the same axis mapping the exporter assumes (Houdini x, y, z -> Unreal X, Y, Z = x, z, y)
+meshes = {}
+for name in ('SM_CeramicAdPlane', 'SM_CeramicAdSphere', 'SM_CeramicAdCyclorama'):
+    t = unreal.AssetImportTask(); t.filename = PROJ + 'unreal/' + name.replace('SM_CeramicAd', 'SM_CeramicAd_') + '.fbx'; t.destination_path = MESH_DIR; t.destination_name = name; t.automated = True; t.replace_existing = True; t.save = True
+    ui = unreal.FbxImportUI(); ui.import_materials = False; ui.import_textures = False; ui.import_animations = False; ui.static_mesh_import_data.combine_meshes = True
+    ui.static_mesh_import_data.set_editor_property('build_nanite', name == 'SM_CeramicAdSphere'); t.options = ui; tools.import_asset_tasks([t])
+    meshes[name] = eal.load_asset(MESH_DIR + '/' + name); b = meshes[name].get_bounds(); print(name, 'origin', b.origin, 'extent', b.box_extent)
+# ---- master material
+mpath = TEX_DIR + '/M_CeramicAd'
+# NEVER delete an asset that is in use (instances, actors): ForceDeleteObjects fails, the package is left corrupt and an 'Overwrite Existing Object' dialog freezes the editor (found 1 October 2026). The graph is rebuilt IN PLACE.
+if eal.does_asset_exist(mpath): mat = eal.load_asset(mpath); mel.delete_all_material_expressions(mat)
+else: mat = tools.create_asset('M_CeramicAd', TEX_DIR, unreal.Material, unreal.MaterialFactoryNew())
+def texparam(pname, tname, x, y, stype):
+    s = mel.create_material_expression(mat, unreal.MaterialExpressionTextureSampleParameter2D, x, y)
+    s.set_editor_property('parameter_name', pname); s.set_editor_property('texture', tex[tname]); s.set_editor_property('sampler_type', stype); return s
+def scalar(pname, v, x, y):
+    s = mel.create_material_expression(mat, unreal.MaterialExpressionScalarParameter, x, y); s.set_editor_property('parameter_name', pname); s.set_editor_property('default_value', v); return s
+def vec(pname, rgb, x, y):
+    s = mel.create_material_expression(mat, unreal.MaterialExpressionVectorParameter, x, y); s.set_editor_property('parameter_name', pname); s.set_editor_property('default_value', unreal.LinearColor(rgb[0], rgb[1], rgb[2], 1.0)); return s
+def node(cls, x, y): return mel.create_material_expression(mat, cls, x, y)
+C = unreal.MaterialSamplerType
+base = texparam('BaseColorTexture', 'T_CeramicAdBaseColorGreen', -1200, -400, C.SAMPLERTYPE_COLOR)
+mult = vec('ColorMultiplier', rig['materials']['green']['multiplier'], -1200, -200)
+bc = node(unreal.MaterialExpressionMultiply, -900, -300); mel.connect_material_expressions(base, 'RGB', bc, 'A'); mel.connect_material_expressions(mult, '', bc, 'B')
+rgh = texparam('RoughnessTexture', 'T_CeramicAdRoughness', -1200, 50, C.SAMPLERTYPE_MASKS)
+rcoat = texparam('ReflectTexture', 'T_CeramicAdReflect', -1200, 300, C.SAMPLERTYPE_MASKS)
+coatw = scalar('CoatWeight', 1.0, -1200, 520); cm = node(unreal.MaterialExpressionMultiply, -900, 380); mel.connect_material_expressions(rcoat, 'R', cm, 'A'); mel.connect_material_expressions(coatw, '', cm, 'B')
+ao = texparam('AmbientOcclusionTexture', 'T_CeramicAdAmbientOcclusion', -1200, 700, C.SAMPLERTYPE_MASKS)
+nm = texparam('NormalTexture', 'T_CeramicAdNormal', -1500, 950, C.SAMPLERTYPE_NORMAL); ns = scalar('NormalStrength', rig['materials']['green']['normal_scale'], -1500, 1180)
+mxy = node(unreal.MaterialExpressionComponentMask, -1250, 950); mxy.set_editor_property('r', True); mxy.set_editor_property('g', True); mxy.set_editor_property('b', False); mxy.set_editor_property('a', False)
+mz = node(unreal.MaterialExpressionComponentMask, -1250, 1100); mz.set_editor_property('r', False); mz.set_editor_property('g', False); mz.set_editor_property('b', True); mz.set_editor_property('a', False)
+sxy0 = node(unreal.MaterialExpressionMultiply, -1150, 980); # -1: the Houdini normal map is read flipped in Y by Unreal (structure correlation with Karma 0.568 -> 0.681 on frame 1, 1 October 2026)
+sgn = scalar('NormalYSign', -1.0, -1500, 1300); one = node(unreal.MaterialExpressionConstant, -1500, 1250); one.set_editor_property('r', 1.0)
+sgv = node(unreal.MaterialExpressionAppendVector, -1300, 1280); mel.connect_material_expressions(one, '', sgv, 'A'); mel.connect_material_expressions(sgn, '', sgv, 'B')
+sxy = node(unreal.MaterialExpressionMultiply, -1050, 980); app = node(unreal.MaterialExpressionAppendVector, -850, 1000); nz = node(unreal.MaterialExpressionNormalize, -650, 1000)
+mel.connect_material_expressions(nm, 'RGB', mxy, ''); mel.connect_material_expressions(nm, 'RGB', mz, ''); mel.connect_material_expressions(mxy, '', sxy0, 'A'); mel.connect_material_expressions(sgv, '', sxy0, 'B'); mel.connect_material_expressions(sxy0, '', sxy, 'A'); mel.connect_material_expressions(ns, '', sxy, 'B')
+mel.connect_material_expressions(sxy, '', app, 'A'); mel.connect_material_expressions(mz, '', app, 'B'); mel.connect_material_expressions(app, '', nz, '')
+spec = scalar('Specular', 0.5, -900, 1250)
+mma = node(unreal.MaterialExpressionMakeMaterialAttributes, -350, 300)
+SHADING = 'default_lit'      # 'default_lit' or 'clear_coat'. UE Clear Coat (Substrate conversion) tints and saturates the base layer with the path length through the coat: key light (50 degrees) stayed olive, fill and rims (grazing) turned turquoise on the sphere (found 1 October 2026).
+half = node(unreal.MaterialExpressionConstant, -600, 1330); half.set_editor_property('r', 0.5)
+cw2 = node(unreal.MaterialExpressionMultiply, -600, 1400); mel.connect_material_expressions(cm, '', cw2, 'A'); mel.connect_material_expressions(half, '', cw2, 'B')
+sp_add = node(unreal.MaterialExpressionAdd, -400, 1330); mel.connect_material_expressions(spec, '', sp_add, 'A'); mel.connect_material_expressions(cw2, '', sp_add, 'B')
+pins = [(bc, '', 'BaseColor'), (rgh, 'R', 'Roughness'), (nz, '', 'Normal'), (ao, 'R', 'AmbientOcclusion')]
+pins += [(cm, '', 'ClearCoat'), (rgh, 'R', 'ClearCoatRoughness'), (spec, '', 'Specular')] if SHADING == 'clear_coat' else [(sp_add, '', 'Specular')]
+for src, out, pin in pins:
+    assert mel.connect_material_expressions(src, out, mma, pin), pin
+mat.set_editor_property('use_material_attributes', True); mat.set_editor_property('shading_model', unreal.MaterialShadingModel.MSM_CLEAR_COAT if SHADING == 'clear_coat' else unreal.MaterialShadingModel.MSM_DEFAULT_LIT)
+assert mel.connect_material_property(mma, '', unreal.MaterialProperty.MP_MATERIAL_ATTRIBUTES)
+mel.recompile_material(mat); eal.save_loaded_asset(mat); print('material', mpath)
+# ---- the three instances: only the colour changes
+for key, tname in (('Green', 'T_CeramicAdBaseColorGreen'), ('Multi', 'T_CeramicAdBaseColorMulti'), ('Teal', 'T_CeramicAdBaseColorTeal')):
+    ip = TEX_DIR + '/MI_CeramicAd' + key
+    mi = eal.load_asset(ip) if eal.does_asset_exist(ip) else tools.create_asset('MI_CeramicAd' + key, TEX_DIR, unreal.MaterialInstanceConstant, unreal.MaterialInstanceConstantFactoryNew()); mi.set_editor_property('parent', mat)
+    mel.set_material_instance_texture_parameter_value(mi, 'BaseColorTexture', tex[tname]); m_ = rig['materials'][key.lower()]['multiplier']
+    mel.set_material_instance_vector_parameter_value(mi, 'ColorMultiplier', unreal.LinearColor(m_[0], m_[1], m_[2], 1.0))
+    mel.update_material_instance(mi); eal.save_loaded_asset(mi)
+print('instances done')

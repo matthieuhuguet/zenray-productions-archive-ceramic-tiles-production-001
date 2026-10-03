@@ -1,0 +1,63 @@
+# 1 October 2026 : runs in the ZenRayShards editor (queue). Builds the LEVEL SEQUENCE LS_CeramicAd of the commercial: 720 frames at 24 fps (6 shots of 120 frames = 5 s), one cine camera per shot (square 24 x 24 mm sensor, focal length and aperture of the Houdini shot),
+# a camera cut track (hard cuts, shot k on frames 120 k .. 120 k + 119), the transform of every camera and of the 9 spheres keyed on EVERY frame of their shot (linear keys: the same poses as the Houdini hip, exported by Scripts/ExportForUnreal.py), and a focus target for the one shot with depth of field (the orbit, f/2.8).
+# Houdini frame f is sequence frame f - 1. Axis rule (measured): Houdini (x, y, z) = Unreal (X, Y, Z) = (x, z, y); a rotation is given by the world directions of the three local axes (make_rotation_from_axes). Idempotent. FR : construit la sequence de la pub, une camera par plan, coupes sechees.
+import unreal, json, math
+PROJ = '/Users/zenray/.claude/tmp/tmp-houdini-september-2026/tmp-materials-substance-copernicus-30-09-2026/unreal/'
+P = json.load(open(PROJ + 'ue_params.json')); anim = json.load(open(PROJ + 'anim.json')); rig = json.load(open(PROJ + 'rig.json'))
+SEQ = P['sequence']; SEQ_DIR, SEQ_NAME = SEQ.rsplit('/', 1); FPS, SF = rig['fps'], rig['shot_frames']; END = 6 * SF
+eal = unreal.EditorAssetLibrary; eas = unreal.get_editor_subsystem(unreal.EditorActorSubsystem); les = unreal.get_editor_subsystem(unreal.LevelEditorSubsystem)
+les.load_level(P['level']); V = unreal.Vector
+for a in eas.get_all_level_actors():
+    if a.get_actor_label().startswith('AdCamShot') or a.get_actor_label().startswith('AdFocus') or a.get_actor_label() == 'AdProbeCam': eas.destroy_actor(a)
+# the sequence is emptied IN PLACE (bindings and master tracks removed): deleting an asset that the render queue or the editor still references corrupts its package
+if eal.does_asset_exist(SEQ):
+    seq = eal.load_asset(SEQ); ext = unreal.MovieSceneSequenceExtensions
+    for b in list(ext.get_bindings(seq)): unreal.MovieSceneBindingExtensions.remove(b)
+    for t in list(ext.get_tracks(seq)): ext.remove_track(seq, t)
+else: seq = unreal.AssetToolsHelpers.get_asset_tools().create_asset(SEQ_NAME, SEQ_DIR, unreal.LevelSequence, unreal.LevelSequenceFactoryNew())
+seq.set_display_rate(unreal.FrameRate(FPS, 1)); seq.set_playback_start(0); seq.set_playback_end(END)
+LIN = unreal.MovieSceneKeyInterpolation.LINEAR
+def unwrap(vals):
+    out = []
+    for i, v in enumerate(vals):
+        if i: 
+            while v - out[-1] > 180.0: v -= 360.0
+            while v - out[-1] < -180.0: v += 360.0
+        out.append(v)
+    return out
+def key_transform(binding, rows, scale=1.0):
+    """rows: list of (sequence frame, (x, y, z), rotator) ; keys the six channels on every row"""
+    tr = binding.add_track(unreal.MovieScene3DTransformTrack); sec = tr.add_section(); sec.set_range(0, END); ch = sec.get_all_channels()
+    roll, pitch, yaw = unwrap([r[2].roll for r in rows]), unwrap([r[2].pitch for r in rows]), unwrap([r[2].yaw for r in rows])
+    for i, (fr, pos, rot) in enumerate(rows):
+        for c, v in zip(ch[:9], (pos[0], pos[1], pos[2], roll[i], pitch[i], yaw[i], scale, scale, scale)): c.add_key(unreal.FrameNumber(fr), v, interpolation=LIN)      # the scale channels are keyed too: left unkeyed they would reset the actor to scale 1
+    return sec
+cut = seq.add_track(unreal.MovieSceneCameraCutTrack); counts = {'cameras': 0, 'keys': 0}
+for k in range(6):
+    fr = anim['cameras'][str(k)]; c0 = fr[0]
+    rot0 = unreal.MathLibrary.make_rotation_from_axes(V(*c0['fwd']), V(*c0['right']), V(*c0['up']))
+    cam = eas.spawn_actor_from_class(unreal.CineCameraActor, V(*c0['pos']), rot0); cam.set_actor_label('AdCamShot%d' % (k + 1))
+    cc = cam.get_cine_camera_component(); fb = cc.get_editor_property('filmback'); fb.sensor_width = 24.0; fb.sensor_height = 24.0; cc.set_editor_property('filmback', fb)
+    cc.set_editor_property('current_focal_length', c0['focal']); dof = c0['fstop'] > 0.0; cc.set_editor_property('current_aperture', c0['fstop'] if dof else 32.0)
+    fs = cc.get_editor_property('focus_settings')
+    if dof:     # a focus target keyed on the view axis at the Houdini focus distance, tracked by the camera
+        tgt = eas.spawn_actor_from_class(unreal.StaticMeshActor, V(*c0['pos'])); tgt.set_actor_label('AdFocusShot%d' % (k + 1)); tgt.root_component.set_mobility(unreal.ComponentMobility.MOVABLE); tgt.set_actor_hidden_in_game(True)
+        tb = seq.add_possessable(tgt); rows = []
+        for i, c in enumerate(fr):
+            p = [c['pos'][j] + c['fwd'][j] * c['focus_cm'] for j in range(3)]; rows.append((120 * k + i, p, unreal.Rotator(0, 0, 0)))
+        key_transform(tb, rows)
+        fs.focus_method = unreal.CameraFocusMethod.TRACKING; tr = fs.tracking_focus_settings; tr.actor_to_track = tgt; fs.tracking_focus_settings = tr
+    else:
+        fs.focus_method = unreal.CameraFocusMethod.MANUAL; fs.manual_focus_distance = c0['focus_cm']
+    cc.set_editor_property('focus_settings', fs)
+    b = seq.add_possessable(cam); rows = []
+    for i, c in enumerate(fr): rows.append((120 * k + i, c['pos'], unreal.MathLibrary.make_rotation_from_axes(V(*c['fwd']), V(*c['right']), V(*c['up']))))
+    key_transform(b, rows); counts['cameras'] += 1; counts['keys'] += len(rows) * 6
+    cs = cut.add_section(); cs.set_range(120 * k, 120 * (k + 1)); cs.set_camera_binding_id(unreal.MovieSceneSequenceExtensions.get_binding_id(seq, b))
+labels = {a.get_actor_label(): a for a in eas.get_all_level_actors()}
+for sid, d in anim['spheres'].items():
+    a = labels['AdSphere' + sid.replace('_', '') + d['colour'].capitalize()]; b = seq.add_possessable(a); rows = []
+    for i, s in enumerate(d['frames']): rows.append((120 * d['shot'] + i, s['pos'], unreal.MathLibrary.make_rotation_from_axes(V(*s['x']), V(*s['z']), V(*s['y']))))
+    key_transform(b, rows, scale=d['frames'][0]['radius_cm'] / 100.0); counts['keys'] += len(rows) * 9
+eal.save_loaded_asset(seq); les.save_current_level()
+print('sequence', SEQ, counts, 'frames', END)

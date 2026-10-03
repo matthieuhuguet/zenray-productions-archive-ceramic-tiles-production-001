@@ -1,0 +1,14 @@
+import unreal
+eas = unreal.get_editor_subsystem(unreal.EditorActorSubsystem); mel = unreal.MaterialEditingLibrary
+for a in eas.get_all_level_actors():
+    if a.get_actor_label().startswith('AdCyclorama'):
+        c = a.static_mesh_component; ms = c.get_materials()
+        print(a.get_actor_label(), a.get_actor_location(), [m.get_path_name() if m else None for m in ms], 'nslots', c.get_num_materials())
+cm = unreal.EditorAssetLibrary.load_asset('/Game/ZenRayShards/Materials/CeramicAd/M_CeramicAdCyclorama')
+print('albedo', mel.get_material_default_scalar_parameter_value(cm, 'Albedo'), 'tone', mel.get_material_default_scalar_parameter_value(cm, 'ToneStops'), 'rough', mel.get_material_default_scalar_parameter_value(cm, 'Roughness'))
+print('num expressions', mel.get_num_material_expressions(cm))
+sl = [a for a in eas.get_all_level_actors() if a.get_actor_label() == 'AdSkyLight'][0]
+print('skylight intensity', sl.light_component.get_editor_property('intensity'))
+for a in eas.get_all_level_actors():
+    if a.get_actor_label() == 'AdLightS4Key': 
+        c = a.light_component; print('key s4', a.get_actor_location(), c.get_editor_property('intensity'), c.get_editor_property('source_width'), c.get_editor_property('attenuation_radius'), c.get_editor_property('intensity_units'))

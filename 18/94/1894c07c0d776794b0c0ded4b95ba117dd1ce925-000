@@ -1,0 +1,13 @@
+# experiment (1 October 2026): a green plane at the position of the green sphere of set S4, the sphere hidden, to separate the effect of the lighting position from the effect of the sphere shape
+import unreal
+eas = unreal.get_editor_subsystem(unreal.EditorActorSubsystem); eal = unreal.EditorAssetLibrary; V = unreal.Vector
+for a in eas.get_all_level_actors():
+    if a.get_actor_label() == 'AdTestPlane': eas.destroy_actor(a)
+mode = open('/tmp/_mode.txt').read().strip()
+sp = [a for a in eas.get_all_level_actors() if a.get_actor_label() == 'AdSpheres40Green'][0]
+if mode == 'on':
+    p = eas.spawn_actor_from_object(eal.load_asset('/Game/ZenRayShards/Meshes/CeramicAd/SM_CeramicAdPlane'), V(-420, -12000, 0)); p.set_actor_label('AdTestPlane')
+    p.static_mesh_component.set_material(0, eal.load_asset('/Game/ZenRayShards/Materials/CeramicAd/MI_CeramicAdGreen')); sp.set_actor_hidden_in_game(True); sp.set_is_temporarily_hidden_in_editor(True)
+else:
+    sp.set_actor_hidden_in_game(False); sp.set_is_temporarily_hidden_in_editor(False)
+print('mode', mode)

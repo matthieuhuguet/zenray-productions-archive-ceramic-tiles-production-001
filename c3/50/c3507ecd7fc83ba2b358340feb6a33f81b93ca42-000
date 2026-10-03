@@ -1,0 +1,6 @@
+import unreal
+ppv = [a for a in unreal.get_editor_subsystem(unreal.EditorActorSubsystem).get_all_level_actors() if a.get_actor_label() == 'AdPostProcess'][0]
+st = ppv.settings
+names = [n for n in dir(st) if not n.startswith('_') and not n.startswith('override_')]
+keys = ('tone', 'bloom', 'vignette', 'grain', 'film', 'local_exposure', 'lens', 'chromatic', 'exposure', 'lumen', 'ambient_occlusion', 'motion_blur', 'depth_of_field', 'anti_alias', 'sharpen')
+print([n for n in names if any(k in n for k in keys)])

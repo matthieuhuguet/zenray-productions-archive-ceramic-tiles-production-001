@@ -1,0 +1,11 @@
+# 1 October 2026 : runs in the editor (queue). Sets scalar parameters of the three ceramic material instances and optionally the sky light intensity from unreal/set_param.json: {"scalars": {"CoatWeight": 0.0}, "sky": 0.0}. FR : change des parametres de materiau pour une experience.
+import unreal, json
+J = json.load(open('/Users/zenray/.claude/tmp/tmp-houdini-september-2026/tmp-materials-substance-copernicus-30-09-2026/unreal/set_param.json')); mel = unreal.MaterialEditingLibrary; eal = unreal.EditorAssetLibrary
+for key in ('Green', 'Multi', 'Teal'):
+    mi = eal.load_asset('/Game/ZenRayShards/Materials/CeramicAd/MI_CeramicAd' + key)
+    for k, v in J.get('scalars', {}).items(): mel.set_material_instance_scalar_parameter_value(mi, k, v)
+    mel.update_material_instance(mi)
+if 'sky' in J:
+    for a in unreal.get_editor_subsystem(unreal.EditorActorSubsystem).get_all_level_actors():
+        if a.get_actor_label() == 'AdSkyLight': a.light_component.set_editor_property('intensity', J['sky'])
+print('set', J)
